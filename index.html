@@ -141,7 +141,7 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
         <select id="f-region"></select>
       </div>
       <div class="full"><label for="f-appellation">Appellation</label><input type="text" id="f-appellation"></div>
-      <div class="full"><label for="f-vin">Vin <span class="hint">domaine, cuvée</span></label><input type="text" id="f-vin"></div>
+      <div class="full"><label for="f-vin">Nom de la bouteille <span class="hint">domaine, cuvée</span></label><input type="text" id="f-vin"></div>
       <div><label for="f-millesime">Millésime</label><input type="text" id="f-millesime" inputmode="numeric"></div>
       <div><label for="f-fenetre">Fenêtre</label><input type="text" id="f-fenetre" placeholder="2026–2030"></div>
     </div>
@@ -196,10 +196,10 @@ const MODELS = { gemini: "gemini-3.8-flash", claude: "claude-sonnet-5-5", openai
 const REGIONS = ['Alsace','Beaujolais','Bordeaux','Bourgogne','Champagne','Corse','Jura','Languedoc-Roussillon','Provence','Savoie','Sud-Ouest','Vallée de la Loire','Vallée du Rhône','Autre'];
 const PROMPT = `Lis les photos d'une bouteille de vin (étiquette de face et contre-étiquette).
 Réponds UNIQUEMENT avec ce JSON, sans texte autour :
-{"region":"","appellation":"","vin":"","millesime":"","couleur":"","fenetre":"","a_confirmer":[]}
+{"region":"","appellation":"","nom":"","millesime":"","couleur":"","fenetre":"","a_confirmer":[]}
 - region : EXACTEMENT un nom de cette liste, rien d'autre : ${REGIONS.join(', ')}. "Autre" pour un vin étranger.
 - appellation : l'appellation seule (ex. "Cairanne", "Hautes-Côtes de Beaune").
-- vin : domaine ou château, puis la cuvée s'il y en a une. Sans appellation, couleur ni année.
+- nom : le nom de la bouteille = domaine ou château, puis la cuvée s'il y en a une. RÈGLE : aucun doublon. Ne répète jamais dans "nom" la région, l'appellation, l'année ni la couleur déjà données dans les autres champs.
 - millesime : l'année écrite sur l'étiquette, telle quelle. Ne la remets jamais en question.
 - couleur : "rouge", "rosé" ou "blanc" seulement si c'est écrit sur l'étiquette. Sinon "".
 - fenetre : années conseillées pour le boire, ex. "2026–2030". Rien d'autre.
@@ -287,6 +287,29 @@ function shrink(file, max, q){
     im.src = data; im.alt = side === 'front' ? 'Photo face' : 'Photo dos';
   });
 });
+
+/* ---------- Règle « aucun doublon » dans le nom de la bouteille ---------- */
+const REGION_WORDS = ['Côtes du Rhône Villages','Côtes du Rhône','Languedoc','Roussillon','Bordeaux','Bourgogne','Beaujolais','Provence','Corse','Savoie','Alsace','Champagne','Jura','Sud-Ouest','Loire'];
+function removeTerm(s, term){
+  const f = c => c.normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  const t = [...String(term||'')].map(f).join('').replace(/[^a-z0-9]/g,'');
+  if (t.length < 3) return s;
+  for (;;){
+    const map = [], fold = [];
+    [...s].forEach((c,i) => { const x = f(c).replace(/[^a-z0-9]/g,''); for (const ch of x){ fold.push(ch); map.push(i); } });
+    const k = fold.join('').indexOf(t); if (k < 0) return s;
+    const chars = [...s]; chars.splice(map[k], map[k+t.length-1] - map[k] + 1); s = chars.join('');
+  }
+}
+function cleanName(name, {region, appellation, millesime} = {}){
+  let s = String(name||'').trim();
+  for (const term of [appellation, region, ...REGION_WORDS, millesime]) s = removeTerm(s, term);
+  s = s.replace(/\bA\.?O\.?[PC]\.?(?=\s|$|,)/gi,'')                        // AOP / AOC
+       .replace(/\([^()]*\b(du|de|des|la|le|d’|d')\s*\)/gi,'');             // reste du type « (cru du ) »
+  for (let i = 0; i < 3; i++) s = s.replace(/\(\s*[,;:\s\-–—]*\)/g,'').replace(/\s*([,;:\-–—])\s*(?=[,;:\-–—)]|$)/g,'').replace(/\(\s*[,;:\-–—]\s*/g,'(').replace(/\s+,/g,',').replace(/\s{2,}/g,' ');
+  s = s.replace(/^[\s,;:\-–—]+|[\s,;:\-–—]+$/g,'').replace(/^\(([^()]*)\)$/,'$1').trim();
+  return s.length >= 3 ? s : '';
+}
 
 /* ---------- Appels aux fournisseurs ---------- */
 async function callGemini(key, model, imgs){
@@ -421,7 +444,7 @@ async function renderCave(){
     const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'item';
     const img = b.photo ? Object.assign(document.createElement('img'), {src:b.photo, alt:''}) : Object.assign(document.createElement('div'), {className:'ph'});
     const txt = document.createElement('div'); txt.className = 'txt';
-    const t = document.createElement('b'); t.textContent = [b.vin || 'Sans nom', b.millesime].filter(Boolean).join(' – ');
+    const t = document.createElement('b'); t.textContent = [b.vin || b.appellation || 'Sans nom', b.millesime].filter(Boolean).join(' – ');
     const m = document.createElement('div'); m.className = 'meta'; m.textContent = [b.region, b.appellation].filter(Boolean).join(' · ');
     const bd = document.createElement('div'); bd.className = 'badges';
     const add = (s, cls) => { if(!s) return; const e = document.createElement('span'); e.className = 'badge ' + (cls||''); e.textContent = s; bd.appendChild(e); };
@@ -467,8 +490,18 @@ $('scan').addEventListener('submit', async e => {
   $('go').disabled = true; setStatus('status', 'Analyse en cours…');
   const t0 = performance.now();
   let out;
+  const BUSY = [429, 500, 502, 503, 504, 529], WAIT = [0, 4000, 8000, 15000];
+  const NAMES = {gemini:'Gemini', claude:'Claude', openai:'ChatGPT'};
   try{
-    out = await ({gemini:callGemini, claude:callClaude, openai:callOpenAI})[p](key, model, imgs);
+    for (let i = 0; i < WAIT.length; i++){
+      if (WAIT[i]){
+        setStatus('status', `${NAMES[p]} est saturé, nouvel essai ${i+1}/${WAIT.length} dans ${WAIT[i]/1000} s…`);
+        await new Promise(r => setTimeout(r, WAIT[i]));
+        setStatus('status', `Analyse en cours… (essai ${i+1}/${WAIT.length})`);
+      }
+      out = await ({gemini:callGemini, claude:callClaude, openai:callOpenAI})[p](key, model, imgs);
+      if (!BUSY.includes(out.status)) break;
+    }
   }catch(err){
     $('go').disabled = false;
     return setStatus('status', `Appel bloqué avant réponse (${err.message}). Cause probable : CORS ou réseau.`, 'err');
@@ -476,6 +509,9 @@ $('scan').addEventListener('submit', async e => {
   $('go').disabled = false;
   const ms = Math.round(performance.now()-t0);
   const diag = `Fournisseur : ${p}\nModèle : ${model}\nHTTP ${out.status} en ${ms} ms\n\n`;
+  if (BUSY.includes(out.status)){
+    return setStatus('status', `${NAMES[p]} est saturé en ce moment (HTTP ${out.status}, ${WAIT.length} essais). Ce n’est pas un problème de votre clé ni de vos photos : réessayez dans quelques minutes, ou choisissez un autre fournisseur si vous avez sa clé.`, 'err');
+  }
   if(out.status !== 200){
     const msg = out.json?.error?.message || JSON.stringify(out.json).slice(0,200);
     return setStatus('status', `L’API a refusé la requête (HTTP ${out.status}) : ${msg}`, 'err');
@@ -483,7 +519,8 @@ $('scan').addEventListener('submit', async e => {
   const d = parseJSON(out.text) || {};
   current = null;
   const c = String(d.couleur || '').toLowerCase().replace(/^rose$/, 'rosé');
-  fillFiche({ region: toRegion(d.region), appellation: d.appellation, vin: d.vin, millesime: d.millesime,
+  const region = toRegion(d.region);
+  fillFiche({ region, appellation: d.appellation, vin: cleanName(d.nom || d.vin, {region, appellation: d.appellation, millesime: d.millesime}), millesime: d.millesime,
               fenetre: d.fenetre, couleur: ['rouge','rosé','blanc'].includes(c) ? c : '', stock: 'S' });
   $('c-hint').textContent = ['rouge','rosé','blanc'].includes(c) ? '' : '· non indiquée sur l’étiquette, à choisir';
   const ul = $('confirm'); ul.innerHTML = '';
