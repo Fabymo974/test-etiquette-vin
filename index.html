@@ -398,7 +398,7 @@ $('imp-file').addEventListener('change', async e => {
     for (const b of items){
       if (!b || !b.id) continue;
       const old = await db.get(b.id);
-      await db.put(old ? {...b, ...old} : b);   // une fiche déjà modifiée dans l'app n'est jamais écrasée
+      await db.put(old && old.updatedAt ? {...b, ...old} : b);   // une fiche déjà modifiée dans l'app n'est jamais écrasée
       n++;
     }
     setStatus('imp-status', `${n} bouteilles importées.`, 'ok');
