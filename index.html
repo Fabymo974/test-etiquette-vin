@@ -75,7 +75,21 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
 .src{font-weight:600;font-size:.7rem;border:1px solid var(--line);border-radius:999px;padding:0 7px;color:var(--muted);margin-left:4px;white-space:nowrap}
 .src:empty{display:none}
 .fullname{font-weight:700;font-size:1.05rem;margin:-6px 0 0;text-wrap:balance}
-.pourtoi{background:var(--bg);border-left:3px solid var(--accent);padding:8px 12px;border-radius:6px;margin:0}
+.pourtoi{background:var(--bg);border-left:3px solid var(--accent);padding:10px 12px;border-radius:6px;margin:0;font-size:.92rem}
+.pourtoi ul{margin:4px 0;padding-left:18px}
+.pourtoi p{margin:4px 0 0}
+.verdict{display:inline-block;font-weight:700;border-radius:999px;padding:1px 10px;margin-left:6px;font-size:.85rem}
+.verdict.oui{background:var(--ok);color:var(--surface)} .verdict.bof{background:var(--warn-bg);color:var(--warn-fg)} .verdict.non{background:var(--err);color:var(--surface)}
+details.config{background:transparent;border:1px solid var(--line);border-radius:10px;padding:8px 12px}
+details.config summary{cursor:pointer;color:var(--muted);font-size:.85rem;list-style-position:inside}
+details.config[open]{background:var(--surface);padding:12px 16px}
+details.config[open] summary{margin-bottom:12px}
+details.config > div{margin-bottom:12px}
+.model-row{display:flex;gap:6px}
+.model-row select{flex:1;min-width:0}
+.model-row button{padding:8px 12px;font-size:.8rem;background:transparent;color:var(--accent);border:1px solid var(--line);font-weight:600}
+details.more summary{cursor:pointer;color:var(--muted);font-size:.85rem}
+details.more pre{font-size:.75rem}
 .timings{font-family:var(--mono);font-size:.78rem;white-space:pre-wrap;color:var(--muted);background:var(--bg);border-radius:8px;padding:8px 10px;margin:0}
 .empty{color:var(--muted);text-align:center;padding:24px 0}
 .filt{display:flex;gap:8px;margin-bottom:12px}
@@ -97,7 +111,8 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
   </nav>
 
   <!-- Analyse -->
-  <form class="card" id="scan">
+  <details class="config" id="config">
+    <summary>Réglages IA <span id="cfg-sum"></span></summary>
     <div>
       <label>Fournisseur</label>
       <div class="row" role="radiogroup">
@@ -107,26 +122,26 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
       </div>
     </div>
     <div>
-      <label for="key">Clé API</label>
+      <label for="key">Clé API <span class="hint">masquée</span></label>
       <input type="password" id="key" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Collez votre clé ici">
       <div class="check"><input type="checkbox" id="remember"><label for="remember" style="margin:0;font-weight:400">Mémoriser la clé sur cet appareil</label></div>
     </div>
     <div>
-      <label for="model">Modèle</label>
-      <input type="text" id="model" autocapitalize="off" spellcheck="false">
+      <label for="model">Modèle <span class="hint">qui lit les images</span></label>
+      <div class="model-row"><select id="model"></select><button type="button" id="models-refresh">Actualiser</button></div>
+      <p class="sub" id="models-status"></p>
     </div>
-    <div>
-      <label for="profil">Mon profil de goût <span class="hint">facultatif, sert à la ligne « Pour toi »</span></label>
-      <textarea id="profil" placeholder="Ex. : j’aime les rouges épicés du Rhône, pas les vins très boisés"></textarea>
-      <p class="sub" id="profil-cave"></p>
-    </div>
+  </details>
+
+  <form class="card" id="scan">
     <div class="photos">
       <label class="photo" id="lab-front"><input type="file" id="front" accept="image/*" capture="environment">Photo face<small>étiquette avant</small></label>
       <label class="photo" id="lab-back"><input type="file" id="back" accept="image/*" capture="environment">Photo dos<small>contre-étiquette</small></label>
     </div>
+    <p class="sub" id="profil-cave"></p>
     <button type="submit" id="go">Analyser</button>
     <div class="status" id="status" aria-live="polite"></div>
-    <pre class="timings" id="timings" hidden></pre>
+    <details class="more" id="more" hidden><summary>En savoir plus sur l’analyse</summary><pre class="timings" id="timings"></pre><pre id="raw"></pre></details>
   </form>
 
   <!-- Ma cave -->
@@ -138,7 +153,7 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
     </div>
     <div class="list" id="list"></div>
     <p class="empty" id="empty">Aucune bouteille pour l’instant. Analysez une étiquette puis appuyez sur « Sauver », ou importez votre cave ci-dessous.</p>
-    <label class="import"><input type="file" id="imp-file" accept=".json,application/json"><span>Importer ma cave (fichier ma-cave.json)</span></label>
+    <label class="import"><input type="file" id="imp-file" accept=".json,.csv,application/json,text/csv"><span>Importer ma cave (fichier CSV ou ma-cave.json)</span></label>
     <p class="status" id="imp-status" role="status"></p>
   </section>
 
@@ -147,7 +162,7 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
     <button type="button" class="back" id="back-cave" hidden>← Ma cave</button>
     <h2 id="fiche-title">Fiche bouteille</h2>
     <p class="fullname" id="fullname"></p>
-    <p class="pourtoi" id="pourtoi-box" hidden><strong>Pour toi :</strong> <span id="pourtoi"></span></p>
+    <div class="pourtoi" id="pourtoi-box" hidden></div>
     <div class="fields">
       <div class="full"><label for="f-region">Région <span class="src" id="src-region"></span></label><select id="f-region"></select></div>
       <div class="full"><label for="f-appellation">Appellation <span class="src" id="src-appellation"></span></label><input type="text" id="f-appellation"></div>
@@ -156,8 +171,8 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
       <div class="full"><label for="f-cuvee">Cuvée <span class="hint">vide si non écrite</span> <span class="src" id="src-cuvee"></span></label><input type="text" id="f-cuvee"></div>
       <div><label for="f-millesime">Millésime <span class="src" id="src-millesime"></span></label><input type="text" id="f-millesime" inputmode="numeric"></div>
       <div><label for="f-fenetre">Fenêtre <span class="src" id="src-fenetre"></span></label><input type="text" id="f-fenetre" placeholder="2026–2030"></div>
-      <div class="full"><label for="f-cepage">Cépage <span class="hint">facultatif</span> <span class="src" id="src-cepage"></span></label><input type="text" id="f-cepage"></div>
-      <div class="full"><label for="f-accords">Idéal avec <span class="hint">3 types de plats</span> <span class="src" id="src-accords"></span></label><input type="text" id="f-accords" placeholder="Bœuf grillé · Gibier · Fromages affinés"></div>
+      <div class="full"><label for="f-cepage">Cépage <span class="hint">facultatif, certitude entre parenthèses</span> <span class="src" id="src-cepage"></span></label><input type="text" id="f-cepage" placeholder="Pinot noir (élevée)"></div>
+      <div class="full"><label for="f-accords">Idéal avec <span class="hint">3 idées par type de plat</span> <span class="src" id="src-accords"></span></label><textarea id="f-accords" placeholder="Fromages : Comté, Brie, Saint-Nectaire&#10;Viandes : …"></textarea></div>
     </div>
 
     <div>
@@ -178,7 +193,7 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
     </div>
 
     <div class="fields">
-      <div class="full"><label for="f-lieu">Lieu</label><input type="text" id="f-lieu" placeholder="Cave, salon, domaine…"></div>
+      <div class="full"><label for="f-lieu">Lieu d’achat</label><input type="text" id="f-lieu" placeholder="Cave, salon, domaine…"></div>
       <div><label for="f-prix">Prix (€)</label><input type="text" id="f-prix" inputmode="decimal" placeholder="12,50"></div>
       <div><label for="f-date">Date</label><input type="date" id="f-date"></div>
     </div>
@@ -197,7 +212,6 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
     </div>
 
     <div class="confirm" id="confirm-box" hidden><strong>À confirmer</strong><ul id="confirm"></ul></div>
-    <details id="diag" hidden><summary>Réponse brute et diagnostic</summary><pre id="raw"></pre></details>
 
     <button type="submit" id="save">Sauver</button>
     <div class="status" id="save-status" aria-live="polite"></div>
@@ -211,23 +225,28 @@ const MODELS = { gemini: "gemini-3.8-flash", claude: "claude-sonnet-5-5", openai
 const LIGHT = { gemini: "gemini-flash-lite-latest", claude: "claude-haiku-5-5", openai: "gpt-5-nano" };
 const REGIONS = ['Alsace','Beaujolais','Bordeaux','Bourgogne','Champagne','Corse','Jura','Languedoc-Roussillon','Provence','Savoie','Sud-Ouest','Vallée de la Loire','Vallée du Rhône','Autre'];
 const SRC_ENUM = ['étiquette','dos','déduit','estimé','aucune'];
-const AI_STR = ['region','appellation','lieu_dit','domaine','cuvee','cepage','millesime','couleur','fenetre','pour_toi'];
+const AI_STR = ['region','appellation','lieu_dit','domaine','cuvee','cepage','millesime','couleur','fenetre'];
 const AI_SRC = ['region','appellation','lieu_dit','domaine','cuvee','cepage','millesime','couleur','fenetre'];
 // Schéma de réponse court : Gemini (types en majuscules) ou OpenAI (strict)
 function schema(gemini){
   const T = t => gemini ? t.toUpperCase() : t;
   const obj = props => { const o = {type:T('object'), properties:props, required:Object.keys(props)}; if (!gemini) o.additionalProperties = false; return o; };
   const str = () => ({type:T('string')}), arr = () => ({type:T('array'), items:str()});
-  const props = {}; AI_STR.forEach(k => props[k] = str()); props.accords = arr(); props.a_confirmer = arr();
+  const en = v => ({type:T('string'), enum:v});
+  const props = {}; AI_STR.forEach(k => props[k] = str());
+  props.cepage_certitude = en(['élevée','moyenne','faible','aucune']);
+  props.accords = obj({fromages:arr(), viandes:arr(), poissons:arr(), desserts:arr()});
+  props.pour_toi = obj({verdict:en(['te plaira','à voir','ne te plaira pas']), raisons:arr(), comparables:arr(), exclusions:arr()});
+  props.a_confirmer = arr();
   const sp = {}; AI_SRC.forEach(k => sp[k] = {type:T('string'), enum:SRC_ENUM});
   props.src = obj(sp);
   return obj(props);
 }
-function buildPrompt(profile, sides){
+function buildPrompt(cave, sides){
   return `Photos d'une bouteille de vin : ${sides}. Remplis la fiche. Réponds seulement avec ce JSON, court :
-{"region":"","appellation":"","lieu_dit":"","domaine":"","cuvee":"","cepage":"","millesime":"","couleur":"","fenetre":"","accords":[],"pour_toi":"","a_confirmer":[],"src":{"region":"","appellation":"","lieu_dit":"","domaine":"","cuvee":"","cepage":"","millesime":"","couleur":"","fenetre":""}}
+{"region":"","appellation":"","lieu_dit":"","domaine":"","cuvee":"","cepage":"","cepage_certitude":"","millesime":"","couleur":"","fenetre":"","accords":{"fromages":[],"viandes":[],"poissons":[],"desserts":[]},"pour_toi":{"verdict":"","raisons":[],"comparables":[],"exclusions":[]},"a_confirmer":[],"src":{"region":"","appellation":"","lieu_dit":"","domaine":"","cuvee":"","cepage":"","millesime":"","couleur":"","fenetre":""}}
 RÈGLES
-- N'invente rien : ce qui n'est pas écrit reste "". Seuls region, appellation, fenetre, accords et pour_toi peuvent être déduits ou estimés.
+- N'invente rien : ce qui n'est pas écrit reste "". Seuls region, appellation, cepage, fenetre, accords et pour_toi peuvent être déduits ou estimés.
 - src : d'où vient chaque valeur. "étiquette" (face), "dos" (contre-étiquette), "déduit" (conclu d'infos écrites), "estimé" (ton avis), "aucune" si vide.
 - Aucun doublon : chaque information dans un seul champ.
 - region : un nom de cette liste : ${REGIONS.join(', ')}.
@@ -235,14 +254,14 @@ RÈGLES
 - lieu_dit : lieu-dit, village, climat ou cru écrit en plus de l'appellation.
 - domaine : le producteur seul (domaine, château, maison ou vigneron), sans la cuvée.
 - cuvee : le nom de cuvée écrit, sinon "".
-- cepage : les cépages écrits, souvent au dos.
+- cepage : cherche-le sur la contre-étiquette ; sinon déduis-le de l'appellation. cepage_certitude : "élevée" s'il est écrit, "moyenne" ou "faible" s'il est déduit, "aucune" et cepage "" si rien ne permet de le dire.
 - millesime : l'année écrite, sans la discuter.
 - couleur : "rouge", "rosé" ou "blanc" seulement si c'est écrit.
 - fenetre : années conseillées pour le boire, ex. "2026–2030".
-- accords : 3 types de plats, 4 mots maximum chacun.
-- pour_toi : ${profile ? "une phrase de 20 mots maximum, en me tutoyant, qui dit si ce vin devrait me plaire d'après mon profil : " + profile : '""'}
+- accords : 3 idées concrètes par type de plat, seulement pour les types qui vont avec ce vin (laisse [] sinon). Uniquement des produits courants en grande surface (ex. fromages : "Comté", "Brie de Meaux").
+- pour_toi : je te tutoie. ${cave ? `D'après le résumé de mes avis ci-dessous : verdict ("te plaira", "à voir" ou "ne te plaira pas") ; raisons (2 maximum, 15 mots maximum chacune) ; comparables (1 ou 2 bouteilles de ma cave, citées telles qu'écrites dans le résumé, avec ma note) ; exclusions (mes critères d'exclusion que ce vin risque de toucher, [] si aucun).` : 'je n\'ai pas encore d\'avis : verdict "à voir", listes vides.'}
 - a_confirmer : 0 à 2 points de 8 mots maximum, seulement si la région, le domaine ou l'année sont illisibles.
-En français.`;
+En français.${cave ? '\n\nRÉSUMÉ DE MES AVIS (note E = Excellent, P = Passable, M = Mauvais)\n' + cave : ''}`;
 }
 
 const $ = id => document.getElementById(id);
@@ -286,16 +305,71 @@ function toRegion(s){
 }
 $('f-region').innerHTML = '<option value="">— à choisir</option>' + REGIONS.map(r => `<option>${r}</option>`).join('');
 
-/* ---------- Réglages fournisseur ---------- */
+/* ---------- Réglages IA : bloc repliable, modèles qui lisent les images ---------- */
+const NAMES = {gemini:'Gemini', claude:'Claude', openai:'ChatGPT'};
+const FALLBACK_MODELS = {
+  gemini: ['gemini-3.8-flash', 'gemini-flash-latest', 'gemini-flash-lite-latest', 'gemini-pro-latest'],
+  claude: ['claude-sonnet-5-5', 'claude-haiku-5-5', 'claude-opus-5-5'],
+  openai: ['gpt-5-mini', 'gpt-5-nano', 'gpt-5']
+};
+async function fetchModels(p, key){
+  if (p === 'gemini'){
+    const j = await (await fetch('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000', {headers:{'x-goog-api-key':key}})).json();
+    if (!j.models) throw new Error(j.error?.message || 'réponse inattendue');
+    return j.models.filter(m => (m.supportedGenerationMethods||[]).includes('generateContent'))
+      .map(m => m.name.replace(/^models\//,''))
+      .filter(n => /^gemini/.test(n) && !/embed|tts|image|audio|live|aqa|robotics|computer-use|learnlm|exp-|thinking/.test(n)).sort().reverse();
+  }
+  if (p === 'claude'){
+    const j = await (await fetch('https://api.anthropic.com/v1/models?limit=100', {headers:{'x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'}})).json();
+    if (!j.data) throw new Error(j.error?.message || 'réponse inattendue');
+    return j.data.map(m => m.id);                                         // tous les modèles Claude lisent les images
+  }
+  const j = await (await fetch('https://api.openai.com/v1/models', {headers:{authorization:'Bearer '+key}})).json();
+  if (!j.data) throw new Error(j.error?.message || 'réponse inattendue');
+  return j.data.map(m => m.id).filter(id => /^(gpt-4o|gpt-4\.1|gpt-5|o3|o4)/.test(id) && !/audio|realtime|tts|transcribe|search|image|codex|instruct|\d{4}-\d{2}-\d{2}/.test(id)).sort().reverse();
+}
+function fillModels(){
+  const p = prov();
+  let list = []; try { list = JSON.parse(store.get('models-'+p) || '[]'); } catch(e) {}
+  if (!list.length) list = FALLBACK_MODELS[p];
+  const cur = store.get('model-'+p) || MODELS[p];
+  if (!list.includes(cur)) list = [cur, ...list];
+  $('model').innerHTML = list.map(m => `<option>${m}</option>`).join('');
+  $('model').value = cur;
+  updateCfgSum();
+}
+async function refreshModels(){
+  const p = prov(), key = $('key').value.trim();
+  if (!key) return setStatus('models-status', 'Collez d’abord la clé pour lister les modèles.', 'err');
+  setStatus('models-status', 'Recherche des modèles…');
+  try {
+    const list = await fetchModels(p, key);
+    if (!list.length) throw new Error('aucun modèle compatible trouvé');
+    store.set('models-'+p, JSON.stringify(list));
+    fillModels();
+    setStatus('models-status', `${list.length} modèle(s) ${NAMES[p]} qui lisent les images.`, 'ok');
+  } catch(err){ setStatus('models-status', 'Liste indisponible (' + err.message + '), liste par défaut affichée.', 'err'); }
+}
+function updateCfgSum(){
+  const p = prov(), ok = !!$('key').value.trim();
+  $('cfg-sum').textContent = `· ${NAMES[p]} · ${$('model').value || '—'}${ok ? '' : ' · clé manquante'}`;
+}
 function loadProv(){
   const p = prov();
-  $('model').value = store.get('model-'+p) || MODELS[p];
   const k = store.get('key-'+p);
   $('key').value = k || '';
   $('remember').checked = !!k;
+  fillModels();
 }
-document.querySelectorAll('input[name=prov]').forEach(r => r.addEventListener('change', loadProv));
+document.querySelectorAll('input[name=prov]').forEach(r => r.addEventListener('change', () => { loadProv(); store.set('prov', prov()); }));
+$('model').addEventListener('change', () => { store.set('model-'+prov(), $('model').value); updateCfgSum(); });
+$('key').addEventListener('input', updateCfgSum);
+$('key').addEventListener('change', () => { if ($('key').value.trim()) refreshModels(); });
+$('models-refresh').addEventListener('click', refreshModels);
+if (store.get('prov')) setRadio('prov', store.get('prov'));
 loadProv();
+$('config').open = !$('key').value.trim();                                 // réduit par défaut une fois configuré
 
 /* ---------- Photos (réduites avant envoi) ---------- */
 const images = {}, shrinkMs = {}; let thumb = '';
@@ -388,7 +462,7 @@ async function callGemini(key, model, imgs, signal, prompt){
     t = thinks[ti] || null;
     const gc = {responseMimeType:'application/json'};
     if (useSchema) gc.responseSchema = schema(true);
-    if (t){ gc.thinkingConfig = t; gc.maxOutputTokens = 800; }
+    if (t){ gc.thinkingConfig = t; gc.maxOutputTokens = 1500; }
     const tb = performance.now();
     const body = JSON.stringify({contents:[{parts}], generationConfig:gc});
     tm.build += performance.now() - tb;
@@ -411,7 +485,7 @@ async function callClaude(key, model, imgs, signal, prompt){
   const content = [...imgs.map(b => ({type:'image', source:{type:'base64', media_type:'image/jpeg', data:b}})), {type:'text', text: prompt}];
   let think = true, r, j;
   for (let n = 0; n < 2; n++){
-    const req = {model, max_tokens:800, messages:[{role:'user', content}]};
+    const req = {model, max_tokens:1500, messages:[{role:'user', content}]};
     if (think) req.thinking = {type:'disabled'};
     const tb = performance.now(); const body = JSON.stringify(req); tm.build += performance.now() - tb;
     [r, j] = await timedFetch('https://api.anthropic.com/v1/messages', {method:'POST', signal,
@@ -433,7 +507,7 @@ async function callOpenAI(key, model, imgs, signal, prompt){
     effort = efforts[ei] ?? null;
     const req = {model, messages:[{role:'user', content}],
       response_format: useSchema ? {type:'json_schema', json_schema:{name:'fiche_vin', strict:true, schema:schema(false)}} : {type:'json_object'}};
-    if (effort){ req.reasoning_effort = effort; req.max_completion_tokens = 800; }
+    if (effort){ req.reasoning_effort = effort; req.max_completion_tokens = 1500; }
     const tb = performance.now(); const body = JSON.stringify(req); tm.build += performance.now() - tb;
     [r, j] = await timedFetch('https://api.openai.com/v1/chat/completions', {method:'POST', signal,
       headers:{'content-type':'application/json','authorization':'Bearer '+key}, body}, tm);
@@ -495,10 +569,10 @@ function fillFiche(b){
   $('f-lieu').value = b.lieu || '';
   $('f-prix').value = b.prix || '';
   $('f-date').value = b.date || (b.id ? '' : today());
-  $('pourtoi').textContent = b.pourtoi || ''; $('pourtoi-box').hidden = !b.pourtoi;
+  renderPourToi(b.pourtoi);
   setSrc(b.src || {});
   $('c-hint').textContent = '';
-  $('confirm-box').hidden = true; $('diag').hidden = true;
+  $('confirm-box').hidden = true;
   setStatus('save-status', '');
   $('del').textContent = 'Supprimer cette bouteille'; delete $('del').dataset.armed;
   updateFullName();
@@ -510,7 +584,7 @@ function readFiche(){
     millesime: $('f-millesime').value.trim(), fenetre: $('f-fenetre').value.trim(), accords: $('f-accords').value.trim(),
     couleur: radio('couleur'), stock: radio('stock') || 'S', note: radio('note'),
     precision: $('f-precision').value.trim(), lieu: $('f-lieu').value.trim(), prix: $('f-prix').value.trim(), date: $('f-date').value,
-    pourtoi: $('pourtoi').textContent, src: readSrc()
+    pourtoi: currentPourToi, src: readSrc()
   };
 }
 // Un champ modifié à la main perd son étiquette de source ; le nom complet suit
@@ -519,22 +593,49 @@ SRC_FIELDS.forEach(k => {
   els.forEach(el => el.addEventListener(el.tagName === 'SELECT' || el.type === 'radio' ? 'change' : 'input', () => { $('src-'+k).textContent = ''; updateFullName(); }));
 });
 
-/* ---------- Profil de goût : texte libre + notes de Ma cave ---------- */
-$('profil').value = store.get('profil') || '';
-$('profil').addEventListener('input', () => store.set('profil', $('profil').value));
+/* ---------- Pour toi ---------- */
+let currentPourToi = null;
+function renderPourToi(pt){
+  currentPourToi = pt || null;
+  const box = $('pourtoi-box'); box.innerHTML = '';
+  if (!pt) { box.hidden = true; return; }
+  if (typeof pt === 'string'){ box.textContent = 'Pour toi : ' + pt; box.hidden = false; return; }
+  const v = String(pt.verdict || '').toLowerCase();
+  const h = document.createElement('div'); h.innerHTML = '<strong>Pour toi</strong>';
+  if (v){ const sp = document.createElement('span'); sp.className = 'verdict ' + (v.startsWith('te') ? 'oui' : v.startsWith('ne') ? 'non' : 'bof'); sp.textContent = v.charAt(0).toUpperCase() + v.slice(1); h.appendChild(sp); }
+  box.appendChild(h);
+  const list = (title, arr, asList) => {
+    arr = (arr || []).filter(Boolean); if (!arr.length) return;
+    if (asList){ const ul = document.createElement('ul'); arr.forEach(x => { const li = document.createElement('li'); li.textContent = x; ul.appendChild(li); }); box.appendChild(ul); return; }
+    const p = document.createElement('p'); const b = document.createElement('b'); b.textContent = title + ' : '; p.append(b, arr.join(' ; ')); box.appendChild(p);
+  };
+  list('', pt.raisons, true);
+  list('Comparables dans ta cave', pt.comparables);
+  const ex = (pt.exclusions || []).filter(Boolean);
+  const p = document.createElement('p'); const b = document.createElement('b'); b.textContent = 'Critères d’exclusion touchés : '; p.append(b, ex.length ? ex.join(' ; ') : 'aucun'); box.appendChild(p);
+  box.hidden = false;
+}
+
+/* ---------- Profil de goût : résumé compact des avis de Ma cave ---------- */
+const CRITIQUES = [['trop acide', /acid/], ['vert', /\bvert/], ['amer', /amer/], ['boisé', /bois|f[uû]t|ch[eê]ne/], ['tannique', /tann|tanin/], ['sucré', /sucr/], ['lourd / alcooleux', /lourd|alcool/], ['mal de tête le lendemain', /mal de t[eê]te|patrak|lendemain/], ['dur / astringent', /\bdur|astring|r[aâ]peux/], ['plat / sans goût', /\bplat\b|sans go[uû]t|aqueux/]];
 async function tasteProfile(){
   let all = []; try { all = await db.all(); } catch(e) {}
-  const pick = n => [...new Set(all.filter(b => b.note === n).map(b => [b.appellation || b.region, b.couleur].filter(Boolean).join(' ')).filter(Boolean))];
-  const ok = pick('Excellent'), ko = pick('Mauvais');
-  const parts = [];
-  const own = $('profil').value.trim(); if (own) parts.push(own);
-  if (ok.length) parts.push('vins que j\'ai notés Excellent : ' + ok.slice(0,10).join(', '));
-  if (ko.length) parts.push('vins que j\'ai notés Mauvais : ' + ko.slice(0,10).join(', '));
-  return {text: parts.join(' ; '), ok: ok.length, ko: ko.length};
+  const L = {Excellent:'E', Passable:'P', Mauvais:'M'};
+  const rated = all.map(migrate).filter(b => L[b.note]);
+  const short = s => String(s || '').replace(/^\s*(standard\s*[+-]?|pas top|pas bon|bof|excellent|tr[eè]s bon|top)\s*[:/,.-]?\s*/i, '').replace(/\s+/g, ' ').trim().slice(0, 70);
+  const lines = rated.map(b => {
+    const name = [b.domaine, b.cuvee && `« ${b.cuvee} »`].filter(Boolean).join(' ').slice(0, 45);
+    return [name, b.appellation || b.region, [b.couleur, b.millesime].filter(Boolean).join(' '), L[b.note], short(b.precision)].filter(Boolean).join(' | ');
+  });
+  const bad = rated.filter(b => b.note === 'Mauvais').map(b => String(b.precision || '').toLowerCase());
+  const crit = CRITIQUES.map(([label, re]) => [label, bad.filter(t => re.test(t)).length]).filter(x => x[1]).sort((a, b) => b[1] - a[1]);
+  const count = n => rated.filter(b => b.note === n).length;
+  const head = rated.length ? `${rated.length} avis : ${count('Excellent')} E, ${count('Passable')} P, ${count('Mauvais')} M.` + (crit.length ? `\nMes critères d'exclusion (reproches dans mes avis M) : ${crit.map(([l, n]) => `${l} ×${n}`).join(', ')}.` : '') : '';
+  return {text: rated.length ? head + '\n' + lines.join('\n') : '', n: rated.length, crit};
 }
 async function showProfile(){
   const p = await tasteProfile();
-  $('profil-cave').textContent = (p.ok || p.ko) ? `S’y ajoutent vos notes de Ma cave : ${p.ok} vin(s) notés Excellent, ${p.ko} notés Mauvais.` : '';
+  $('profil-cave').textContent = p.n ? `« Pour toi » s’appuie sur les ${p.n} avis de Ma cave.` : '« Pour toi » s’appuiera sur les avis de Ma cave une fois importée.';
 }
 
 /* ---------- Vues ---------- */
@@ -555,12 +656,58 @@ $('t-cave').addEventListener('click', () => show('cave'));
 $('back-cave').addEventListener('click', () => show('cave'));
 document.querySelectorAll('input[name=filtre]').forEach(r => r.addEventListener('change', renderCave));
 
-/* ---------- Import d'une cave existante (fichier JSON) ---------- */
+/* ---------- Import d'une cave existante (fichier JSON ou CSV) ---------- */
+function parseCSV(text){
+  text = text.replace(/^﻿/, '');
+  const first = text.split(/\r?\n/)[0] || '';
+  const sep = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ';' : (first.includes('\t') ? '\t' : ',');
+  const rows = []; let row = [], f = '', q = false;
+  for (let i = 0; i < text.length; i++){
+    const c = text[i];
+    if (q){ if (c === '"'){ if (text[i+1] === '"'){ f += '"'; i++; } else q = false; } else f += c; continue; }
+    if (c === '"') q = true;
+    else if (c === sep){ row.push(f); f = ''; }
+    else if (c === '\n' || c === '\r'){ if (c === '\r' && text[i+1] === '\n') i++; row.push(f); rows.push(row); row = []; f = ''; }
+    else f += c;
+  }
+  if (f || row.length){ row.push(f); rows.push(row); }
+  return rows.filter(r => r.some(x => x.trim()));
+}
+const CSV_COLS = {ref:['ref','reference','n','no','numero','id'], region:['region'], appellation:['appellation','aoc','aop'], vin:['domaine','vin','nom','nomdelabouteille','chateau','producteur'],
+  cuvee:['cuvee'], lieudit:['precision','lieudit','climat','cru'], millesime:['millesime','annee'], fenetre:['fenetre','garde','aboire'], couleur:['couleur','type'],
+  stock:['stock','sv','statut','etat'], note:['note'], precision:['avis','commentaire','commentairededegustation','degustation','remarque'], lieu:['lieu','lieudachat','achat'],
+  prix:['prix','prixeur','prixe'], date:['date','datedachat'], cepage:['cepage','cepages']};
+function noteFrom(s){
+  const n = norm(s);
+  if (/^(excellent|tresbon|top|otop|favori)/.test(n)) return 'Excellent';
+  if (/^(pastop|pasbon|bof|mauvais|nul)/.test(n)) return 'Mauvais';
+  if (/^(standard|passable|moyen|correct|bon)/.test(n)) return 'Passable';
+  return '';
+}
+function csvToBottles(text){
+  const rows = parseCSV(text); if (rows.length < 2) throw new Error('fichier CSV vide');
+  const head = rows[0].map(h => norm(h));
+  const col = {}; for (const k in CSV_COLS){ const i = head.findIndex(h => CSV_COLS[k].includes(h)); if (i >= 0) col[k] = i; }
+  if (col.vin === undefined && col.appellation === undefined) throw new Error('colonnes Domaine ou Appellation introuvables');
+  return rows.slice(1).map((r, i) => {
+    const g = k => col[k] === undefined ? '' : String(r[col[k]] || '').trim();
+    const c = norm(g('couleur')), st = g('stock').toUpperCase();
+    const b = {ref: g('ref'), region: toRegion(g('region') || g('appellation')), appellation: g('appellation'), vin: g('vin'), cuvee: g('cuvee'), lieudit: g('lieudit'),
+      millesime: g('millesime'), fenetre: g('fenetre'), couleur: c.startsWith('ros') ? 'rosé' : c.startsWith('bl') ? 'blanc' : c.startsWith('rou') ? 'rouge' : '',
+      stock: st.startsWith('V') ? 'V' : 'S', note: noteFrom(g('note')) || noteFrom(g('precision')), precision: g('precision'), lieu: g('lieu'), prix: g('prix'), date: g('date'), cepage: g('cepage'),
+      createdAt: Date.now() - i};
+    b.id = 'csv-' + (b.ref || norm(b.vin + b.appellation + b.millesime).slice(0, 40) || i);
+    return b;
+  }).filter(b => b.vin || b.appellation);
+}
+
 $('imp-file').addEventListener('change', async e => {
   const file = e.target.files[0]; e.target.value = '';
   if (!file) return;
   try {
-    const data = JSON.parse(await file.text());
+    const text = await file.text();
+    const isCsv = /\.csv$/i.test(file.name) || !/^\s*[\[{]/.test(text);
+    const data = isCsv ? csvToBottles(text) : JSON.parse(text);
     const items = Array.isArray(data) ? data : data.bouteilles;
     if (!Array.isArray(items) || !items.length) throw new Error('aucune bouteille dans ce fichier');
     let n = 0;
@@ -638,15 +785,14 @@ $('scan').addEventListener('submit', async e => {
   if($('remember').checked){ store.set('key-'+p, key); } else { store.del('key-'+p); }
   store.set('model-'+p, model);
 
-  // Étape 1 : préparation (profil de goût + consigne)
+  // Étape 1 : préparation (résumé des avis + consigne)
   const prof = await tasteProfile();
   const sides = images.front && images.back ? '1re = étiquette de face, 2e = contre-étiquette (dos)' : (images.front ? 'étiquette de face seulement' : 'contre-étiquette (dos) seulement');
   const prompt = buildPrompt(prof.text, sides);
   const kb = Math.round((imgs.join('').length * 3 / 4 + prompt.length) / 1024);
   const tPrep = performance.now() - T0;
 
-  $('go').disabled = true; $('timings').hidden = true;
-  const NAMES = {gemini:'Gemini', claude:'Claude', openai:'ChatGPT'};
+  $('go').disabled = true; $('more').hidden = true; $('more').open = false;
   const BUSY = [429, 500, 502, 503, 504, 529, 'délai'];
   const TIMEOUT = 25000;
   const light = LIGHT[p] !== model ? LIGHT[p] : null;
@@ -694,7 +840,7 @@ $('scan').addEventListener('submit', async e => {
   const d = parseJSON(out.text) || {};
   const src = d.src && typeof d.src === 'object' ? d.src : null;
   const S = k => src ? String(src[k] || '').toLowerCase() : '';
-  const written = k => !src || ['étiquette','dos'].includes(S(k));       // ce qui doit être écrit : sinon vide
+  const written = k => !src || ['étiquette','dos'].includes(S(k)) || (k === 'cepage' && S(k) === 'déduit');   // ce qui doit être écrit : sinon vide
   const keep = (k, v) => written(k) ? String(v || '').trim() : '';
   const region = toRegion(d.region), appellation = cleanAppellation(d.appellation, region);
   const ctx = {region, appellation: d.appellation, millesime: d.millesime};
@@ -704,13 +850,21 @@ $('scan').addEventListener('submit', async e => {
   const lieudit = cleanName(keep('lieu_dit', d.lieu_dit), {region, appellation: d.appellation});
   const c = keep('couleur', d.couleur).toLowerCase().replace(/^rose$/, 'rosé');
   const couleur = ['rouge','rosé','blanc'].includes(c) ? c : '';
-  const vals = {region, appellation, lieudit, domaine, cuvee, cepage: keep('cepage', d.cepage), millesime: keep('millesime', d.millesime), couleur, fenetre: String(d.fenetre||'').trim()};
+  const cert = String(d.cepage_certitude || '').toLowerCase();
+  let cepage = keep('cepage', d.cepage).replace(/\s*\((élevée|moyenne|faible)\)\s*$/i, '');
+  if (cepage && ['élevée','moyenne','faible'].includes(cert)) cepage += ` (${cert})`; else if (cert === 'aucune') cepage = '';
+  const vals = {region, appellation, lieudit, domaine, cuvee, cepage, millesime: keep('millesime', d.millesime), couleur, fenetre: String(d.fenetre||'').trim()};
   const srcOut = {};
   if (src) Object.keys(vals).forEach(k => { const v = S(k === 'lieudit' ? 'lieu_dit' : k); if (vals[k] && v && v !== 'aucune') srcOut[k] = v; });
-  const accords = (Array.isArray(d.accords) ? d.accords : String(d.accords||'').split(/[,;·]/)).map(x => String(x).trim()).filter(Boolean).slice(0,3).join(' · ');
+  const A = d.accords && typeof d.accords === 'object' && !Array.isArray(d.accords) ? d.accords : {};
+  const accords = [['Fromages','fromages'],['Viandes','viandes'],['Poissons','poissons'],['Desserts','desserts']]
+    .map(([t, k]) => [t, (Array.isArray(A[k]) ? A[k] : []).map(x => String(x).trim()).filter(Boolean).slice(0,3)])
+    .filter(([, v]) => v.length).map(([t, v]) => `${t} : ${v.join(', ')}`).join('\n')
+    || (Array.isArray(d.accords) ? d.accords.join(', ') : '');
+  const pt = d.pour_toi && typeof d.pour_toi === 'object' ? d.pour_toi : (d.pour_toi ? String(d.pour_toi) : null);
   if (accords) srcOut.accords = 'estimé';
   current = null;
-  fillFiche({...vals, accords, stock: 'S', pourtoi: String(d.pour_toi || '').trim(), src: srcOut});
+  fillFiche({...vals, accords, stock: 'S', pourtoi: pt, src: srcOut});
   $('c-hint').textContent = couleur ? '' : '· non indiquée sur l’étiquette, à choisir';
   const ul = $('confirm'); ul.innerHTML = '';
   (Array.isArray(d.a_confirmer) ? d.a_confirmer : (d.a_confirmer ? [d.a_confirmer] : [])).slice(0,2).forEach(x => {
@@ -726,7 +880,7 @@ $('scan').addEventListener('submit', async e => {
   const lines = [
     `Temps de chaque étape — total ${ms(total)}`,
     `1. Réduction des photos à 1000 px : ${shr} (faite à la prise de photo)`,
-    `2. Préparation de la requête : ${Math.round(tPrep + tm.build)} ms (${kb} Ko envoyés, ${imgs.length} photo(s) en 1 appel)`,
+    `2. Préparation de la requête : ${Math.round(tPrep + tm.build)} ms (${kb} Ko envoyés, ${imgs.length} photo(s) en 1 appel, résumé de ${prof.n} avis : ${prof.text.length} caractères)`,
     `3. Attente de l’IA (envoi + calcul) : ${ms(tm.wait)}`,
     `4. Réception de la réponse : ${Math.round(tm.recv)} ms`,
     `5. Lecture + remplissage de la fiche : ${Math.round(tRead)} ms`,
@@ -735,8 +889,8 @@ $('scan').addEventListener('submit', async e => {
     `Jetons : entrée ${u.in ?? '?'}, sortie ${u.out ?? '?'}, réflexion ${u.think ?? '?'}`,
     trace.length > 1 ? 'Essais :\n' + trace.join('\n') : ''
   ].filter(Boolean).join('\n');
-  $('timings').textContent = lines; $('timings').hidden = false;
-  $('raw').textContent = lines + '\n\n' + JSON.stringify(out.json, null, 2); $('diag').hidden = false;
+  $('timings').textContent = lines;
+  $('raw').textContent = 'Réponse brute de l’IA :\n' + JSON.stringify(out.json, null, 2); $('more').hidden = false;
   setStatus('status', `Analyse terminée en ${ms(total)} (IA ${ms(tm.wait)})${used !== model ? ' avec le modèle rapide' : ''}. Complétez la fiche puis appuyez sur « Sauver ».`);
   show('new');
   $('fiche').scrollIntoView({behavior:'smooth', block:'start'});
