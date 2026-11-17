@@ -73,6 +73,10 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
 .badge{font-size:.75rem;font-weight:700;border:1px solid var(--line);border-radius:999px;padding:1px 8px}
 .badge.s{background:var(--accent);color:var(--accent-fg);border-color:var(--accent)}
 .empty{color:var(--muted);text-align:center;padding:24px 0}
+.filt{display:flex;gap:8px;margin-bottom:12px}
+.import{display:block;position:relative;margin-top:16px}
+.import input{position:absolute;opacity:0;inset:0;width:100%}
+.import span{display:block;text-align:center;padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-weight:600}
 </style>
 </head>
 <body>
@@ -116,8 +120,15 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
 
   <!-- Ma cave -->
   <section id="cave" hidden>
+    <div class="row filt" role="radiogroup" aria-label="Afficher">
+      <label class="seg"><input type="radio" name="filtre" value="S" checked><span>Stock <small id="n-s"></small></span></label>
+      <label class="seg"><input type="radio" name="filtre" value="V"><span>Vides <small id="n-v"></small></span></label>
+      <label class="seg"><input type="radio" name="filtre" value=""><span>Tout <small id="n-all"></small></span></label>
+    </div>
     <div class="list" id="list"></div>
-    <p class="empty" id="empty">Aucune bouteille pour l’instant. Analysez une étiquette puis appuyez sur « Sauver ».</p>
+    <p class="empty" id="empty">Aucune bouteille pour l’instant. Analysez une étiquette puis appuyez sur « Sauver », ou importez votre cave ci-dessous.</p>
+    <label class="import"><input type="file" id="imp-file" accept=".json,application/json"><span>Importer ma cave (fichier ma-cave.json)</span></label>
+    <p class="status" id="imp-status" role="status"></p>
   </section>
 
   <!-- Fiche bouteille -->
@@ -342,7 +353,7 @@ function fillFiche(b){
   $('f-precision').value = b.precision || '';
   $('f-lieu').value = b.lieu || '';
   $('f-prix').value = b.prix || '';
-  $('f-date').value = b.date || today();
+  $('f-date').value = b.date || (b.id ? '' : today());
   $('c-hint').textContent = '';
   $('confirm-box').hidden = true; $('diag').hidden = true;
   setStatus('save-status', '');
@@ -373,15 +384,40 @@ function show(view){
 $('t-scan').addEventListener('click', () => show(current === null && !$('fiche').hidden ? 'new' : 'scan'));
 $('t-cave').addEventListener('click', () => show('cave'));
 $('back-cave').addEventListener('click', () => show('cave'));
+document.querySelectorAll('input[name=filtre]').forEach(r => r.addEventListener('change', renderCave));
+
+/* ---------- Import d'une cave existante (fichier JSON) ---------- */
+$('imp-file').addEventListener('change', async e => {
+  const file = e.target.files[0]; e.target.value = '';
+  if (!file) return;
+  try {
+    const data = JSON.parse(await file.text());
+    const items = Array.isArray(data) ? data : data.bouteilles;
+    if (!Array.isArray(items) || !items.length) throw new Error('aucune bouteille dans ce fichier');
+    let n = 0;
+    for (const b of items){
+      if (!b || !b.id) continue;
+      const old = await db.get(b.id);
+      await db.put(old ? {...b, ...old} : b);   // une fiche déjà modifiée dans l'app n'est jamais écrasée
+      n++;
+    }
+    setStatus('imp-status', `${n} bouteilles importées.`, 'ok');
+    renderCave();
+  } catch(err){ setStatus('imp-status', 'Import impossible : ' + err.message, 'err'); }
+});
 
 async function renderCave(){
   let all = [];
   try { all = await db.all(); } catch(e) { setStatus('save-status', 'Base de données indisponible sur ce navigateur.', 'err'); }
   all.sort((a,b) => (b.createdAt||0) - (a.createdAt||0));
-  $('count').textContent = all.length ? `(${all.length})` : '';
+  const nS = all.filter(b => (b.stock||'S') === 'S').length;
+  $('count').textContent = all.length ? `(${nS})` : '';
+  $('n-s').textContent = nS; $('n-v').textContent = all.length - nS; $('n-all').textContent = all.length;
+  const f = radio('filtre');
+  const shown = f ? all.filter(b => (b.stock||'S') === f) : all;
   const list = $('list'); list.innerHTML = '';
   $('empty').hidden = all.length > 0;
-  for (const b of all){
+  for (const b of shown){
     const btn = document.createElement('button'); btn.type = 'button'; btn.className = 'item';
     const img = b.photo ? Object.assign(document.createElement('img'), {src:b.photo, alt:''}) : Object.assign(document.createElement('div'), {className:'ph'});
     const txt = document.createElement('div'); txt.className = 'txt';
