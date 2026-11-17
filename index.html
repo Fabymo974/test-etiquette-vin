@@ -67,7 +67,7 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
 .item{display:flex;gap:12px;align-items:center;text-align:left;background:var(--surface);color:var(--fg);border:1px solid var(--line);padding:10px;font-weight:400}
 .item img,.item .ph{width:52px;height:68px;border-radius:6px;object-fit:cover;flex:none;background:var(--bg)}
 .item .txt{min-width:0;flex:1}
-.item b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.item b{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.3}
 .item .meta{font-size:.85rem;color:var(--muted)}
 .badges{display:flex;gap:4px;flex-wrap:wrap;margin-top:4px}
 .badge{font-size:.75rem;font-weight:700;border:1px solid var(--line);border-radius:999px;padding:1px 8px}
@@ -96,6 +96,16 @@ details.more pre{font-size:.75rem}
 .import{display:block;position:relative;margin-top:16px}
 .import input{position:absolute;opacity:0;inset:0;width:100%}
 .import span{display:block;text-align:center;padding:12px;border:1px dashed var(--line);border-radius:8px;color:var(--muted);font-weight:600}
+.verdict.none{background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+.badges .verdict{margin-left:0;font-size:.75rem;padding:1px 8px}
+.badge.garder{color:var(--muted);font-weight:600} .badge.boire{color:var(--accent);border-color:var(--accent)} .badge.sommet{color:var(--ok);border-color:var(--ok)}
+.ana{display:flex;flex-direction:column;gap:6px;margin-top:-6px}
+.ana-row{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap;font-size:.82rem;color:var(--muted)}
+button.mini{padding:7px 12px;font-size:.82rem;background:transparent;color:var(--accent);border:1px solid var(--line);font-weight:600}
+.noana{display:flex;flex-direction:column;gap:6px;background:var(--bg);border-left:3px solid var(--line);padding:10px 12px;border-radius:6px;font-size:.9rem}
+.noana button{align-self:flex-start}
+.photos.small .photo{aspect-ratio:auto;height:170px;font-size:.85rem}
+.export{background:transparent;color:var(--accent);border:1px solid var(--line);font-weight:600;width:100%;margin-top:10px}
 </style>
 </head>
 <body>
@@ -154,6 +164,7 @@ details.more pre{font-size:.75rem}
     <div class="list" id="list"></div>
     <p class="empty" id="empty">Aucune bouteille pour l’instant. Analysez une étiquette puis appuyez sur « Sauver », ou importez votre cave ci-dessous.</p>
     <label class="import"><input type="file" id="imp-file" accept=".json,.csv,application/json,text/csv"><span>Importer ma cave (fichier CSV ou ma-cave.json)</span></label>
+    <button type="button" class="export" id="exp-csv">Exporter ma cave (CSV, sans les photos)</button>
     <p class="status" id="imp-status" role="status"></p>
   </section>
 
@@ -162,7 +173,16 @@ details.more pre{font-size:.75rem}
     <button type="button" class="back" id="back-cave" hidden>← Ma cave</button>
     <h2 id="fiche-title">Fiche bouteille</h2>
     <p class="fullname" id="fullname"></p>
+    <div class="photos small" id="fiche-photos" hidden>
+      <label class="photo" id="flab-front"><input type="file" id="fp-front" accept="image/*">Photo face<small>ajouter</small></label>
+      <label class="photo" id="flab-back"><input type="file" id="fp-back" accept="image/*">Photo dos<small>ajouter</small></label>
+    </div>
     <div class="pourtoi" id="pourtoi-box" hidden></div>
+    <div class="ana" id="ana-box" hidden>
+      <div class="ana-row" id="ana-dated"><span id="ana-date"></span><button type="button" class="mini" id="pt-update">Mettre à jour</button></div>
+      <div class="noana" id="noana" hidden><strong>Pas d’analyse</strong><span class="hint">« Pour toi » et les plats peuvent être produits à partir du texte de cette fiche, sans photo.</span><button type="button" class="mini" id="ana-fiche">Analyser à partir de la fiche</button></div>
+      <div class="status" id="ana-status" aria-live="polite"></div>
+    </div>
     <div class="fields">
       <div class="full"><label for="f-region">Région <span class="src" id="src-region"></span></label><select id="f-region"></select></div>
       <div class="full"><label for="f-appellation">Appellation <span class="src" id="src-appellation"></span></label><input type="text" id="f-appellation"></div>
@@ -228,15 +248,20 @@ const SRC_ENUM = ['étiquette','dos','déduit','estimé','aucune'];
 const AI_STR = ['region','appellation','lieu_dit','domaine','cuvee','cepage','millesime','couleur','fenetre'];
 const AI_SRC = ['region','appellation','lieu_dit','domaine','cuvee','cepage','millesime','couleur','fenetre'];
 // Schéma de réponse court : Gemini (types en majuscules) ou OpenAI (strict)
-function schema(gemini){
+// kind : 'full' (photos), 'pourtoi' (Mettre à jour), 'fiche' (analyse à partir du texte de la fiche)
+function schema(gemini, kind = 'full'){
   const T = t => gemini ? t.toUpperCase() : t;
   const obj = props => { const o = {type:T('object'), properties:props, required:Object.keys(props)}; if (!gemini) o.additionalProperties = false; return o; };
   const str = () => ({type:T('string')}), arr = () => ({type:T('array'), items:str()});
   const en = v => ({type:T('string'), enum:v});
+  const pour_toi = obj({verdict:en(['te plaira','à voir','ne te plaira pas']), raisons:arr(), comparables:arr(), exclusions:arr()});
+  const accords = obj({fromages:arr(), viandes:arr(), poissons:arr(), desserts:arr()});
+  if (kind === 'pourtoi') return obj({pour_toi});
+  if (kind === 'fiche') return obj({accords, pour_toi});
   const props = {}; AI_STR.forEach(k => props[k] = str());
   props.cepage_certitude = en(['élevée','moyenne','faible','aucune']);
-  props.accords = obj({fromages:arr(), viandes:arr(), poissons:arr(), desserts:arr()});
-  props.pour_toi = obj({verdict:en(['te plaira','à voir','ne te plaira pas']), raisons:arr(), comparables:arr(), exclusions:arr()});
+  props.accords = accords;
+  props.pour_toi = pour_toi;
   props.a_confirmer = arr();
   const sp = {}; AI_SRC.forEach(k => sp[k] = {type:T('string'), enum:SRC_ENUM});
   props.src = obj(sp);
@@ -258,10 +283,30 @@ RÈGLES
 - millesime : l'année écrite, sans la discuter.
 - couleur : "rouge", "rosé" ou "blanc" seulement si c'est écrit.
 - fenetre : années conseillées pour le boire, ex. "2026–2030".
-- accords : 3 idées concrètes par type de plat, seulement pour les types qui vont avec ce vin (laisse [] sinon). Uniquement des produits courants en grande surface (ex. fromages : "Comté", "Brie de Meaux").
-- pour_toi : je te tutoie. ${cave ? `D'après le résumé de mes avis ci-dessous : verdict ("te plaira", "à voir" ou "ne te plaira pas") ; raisons (2 maximum, 15 mots maximum chacune) ; comparables (1 ou 2 bouteilles de ma cave, citées telles qu'écrites dans le résumé, avec ma note) ; exclusions (mes critères d'exclusion que ce vin risque de toucher, [] si aucun).` : 'je n\'ai pas encore d\'avis : verdict "à voir", listes vides.'}
+- ${RULE_ACCORDS}
+- ${rulePourToi(cave)}
 - a_confirmer : 0 à 2 points de 8 mots maximum, seulement si la région, le domaine ou l'année sont illisibles.
-En français.${cave ? '\n\nRÉSUMÉ DE MES AVIS (note E = Excellent, P = Passable, M = Mauvais)\n' + cave : ''}`;
+En français.${caveBlock(cave)}`;
+}
+const RULE_ACCORDS = `accords : 3 idées concrètes par type de plat, seulement pour les types qui vont avec ce vin (laisse [] sinon). Uniquement des produits courants en grande surface (ex. fromages : "Comté", "Brie de Meaux").`;
+const rulePourToi = cave => `pour_toi : je te tutoie. ${cave ? `D'après le résumé de mes avis ci-dessous : verdict ("te plaira", "à voir" ou "ne te plaira pas") ; raisons (2 maximum, 15 mots maximum chacune) ; comparables (1 ou 2 bouteilles de ma cave, citées telles qu'écrites dans le résumé, avec ma note) ; exclusions (mes critères d'exclusion que ce vin risque de toucher, [] si aucun).` : 'je n\'ai pas encore d\'avis : verdict "à voir", listes vides.'}`;
+const caveBlock = cave => cave ? '\n\nRÉSUMÉ DE MES AVIS (note E = Excellent, P = Passable, M = Mauvais)\n' + cave : '';
+// Sans photo : la fiche enregistrée sert de description du vin
+function ficheText(b){
+  return [['Nom', fullName(b)], ['Région', b.region], ['Appellation', b.appellation], ['Précision', b.lieudit], ['Cépage', b.cepage],
+    ['Couleur', b.couleur], ['Millésime', b.millesime], ['Fenêtre de dégustation', b.fenetre]].filter(([, v]) => v).map(([k, v]) => `${k} : ${v}`).join('\n');
+}
+function buildTextPrompt(b, cave, withAccords){
+  const json = withAccords ? '{"accords":{"fromages":[],"viandes":[],"poissons":[],"desserts":[]},"pour_toi":{"verdict":"","raisons":[],"comparables":[],"exclusions":[]}}'
+                           : '{"pour_toi":{"verdict":"","raisons":[],"comparables":[],"exclusions":[]}}';
+  return `Voici la fiche d'un vin (pas de photo) :
+${ficheText(b)}
+Réponds seulement avec ce JSON, court :
+${json}
+RÈGLES
+- Appuie-toi sur cette fiche et sur ce que tu sais de l'appellation ; n'invente pas de détail sur ce vin précis.
+${withAccords ? '- ' + RULE_ACCORDS + '\n' : ''}- ${rulePourToi(cave)}
+En français.${caveBlock(cave)}`;
 }
 
 const $ = id => document.getElementById(id);
@@ -453,7 +498,7 @@ async function timedFetch(url, opt, tm){
   tm.wait += b - a; tm.recv += c - b; tm.calls++;
   return [r, j];
 }
-async function callGemini(key, model, imgs, signal, prompt){
+async function callGemini(key, model, imgs, signal, prompt, sch = schema){
   const tm = {build:0, wait:0, recv:0, calls:0}, t0 = performance.now();
   const parts = [{text: prompt}, ...imgs.map(b => ({inline_data:{mime_type:'image/jpeg', data:b}}))];
   const thinks = [{thinkingLevel:'minimal'}, {thinkingBudget:0}];
@@ -461,7 +506,7 @@ async function callGemini(key, model, imgs, signal, prompt){
   for (let n = 0; n < 5; n++){
     t = thinks[ti] || null;
     const gc = {responseMimeType:'application/json'};
-    if (useSchema) gc.responseSchema = schema(true);
+    if (useSchema) gc.responseSchema = sch(true);
     if (t){ gc.thinkingConfig = t; gc.maxOutputTokens = 1500; }
     const tb = performance.now();
     const body = JSON.stringify({contents:[{parts}], generationConfig:gc});
@@ -480,7 +525,7 @@ async function callGemini(key, model, imgs, signal, prompt){
     think: t ? 'coupée (' + Object.entries(t)[0].join(' ') + ')' : 'impossible à couper sur ce modèle',
     schema: useSchema, usage: {in:u.promptTokenCount, out:u.candidatesTokenCount, think:u.thoughtsTokenCount || 0}};
 }
-async function callClaude(key, model, imgs, signal, prompt){
+async function callClaude(key, model, imgs, signal, prompt, sch){
   const tm = {build:0, wait:0, recv:0, calls:0};
   const content = [...imgs.map(b => ({type:'image', source:{type:'base64', media_type:'image/jpeg', data:b}})), {type:'text', text: prompt}];
   let think = true, r, j;
@@ -498,7 +543,7 @@ async function callClaude(key, model, imgs, signal, prompt){
     think: think ? 'coupée (thinking disabled)' : 'non réglable (désactivée par défaut)', schema:false,
     usage: {in:u.input_tokens, out:u.output_tokens, think:0}};
 }
-async function callOpenAI(key, model, imgs, signal, prompt){
+async function callOpenAI(key, model, imgs, signal, prompt, sch = schema){
   const tm = {build:0, wait:0, recv:0, calls:0};
   const content = [{type:'text', text: prompt}, ...imgs.map(b => ({type:'image_url', image_url:{url:'data:image/jpeg;base64,'+b}}))];
   const efforts = ['none', 'minimal', null];
@@ -506,7 +551,7 @@ async function callOpenAI(key, model, imgs, signal, prompt){
   for (let n = 0; n < 5; n++){
     effort = efforts[ei] ?? null;
     const req = {model, messages:[{role:'user', content}],
-      response_format: useSchema ? {type:'json_schema', json_schema:{name:'fiche_vin', strict:true, schema:schema(false)}} : {type:'json_object'}};
+      response_format: useSchema ? {type:'json_schema', json_schema:{name:'fiche_vin', strict:true, schema:sch(false)}} : {type:'json_object'}};
     if (effort){ req.reasoning_effort = effort; req.max_completion_tokens = 1500; }
     const tb = performance.now(); const body = JSON.stringify(req); tm.build += performance.now() - tb;
     [r, j] = await timedFetch('https://api.openai.com/v1/chat/completions', {method:'POST', signal,
@@ -569,7 +614,10 @@ function fillFiche(b){
   $('f-lieu').value = b.lieu || '';
   $('f-prix').value = b.prix || '';
   $('f-date').value = b.date || (b.id ? '' : today());
+  ficheMeta = {analyse: b.analyse || null, pourtoiDate: b.pourtoiDate || '', pourtoiModele: b.pourtoiModele || ''};
+  setFichePhotos(b);
   renderPourToi(b.pourtoi);
+  setStatus('ana-status', '');
   setSrc(b.src || {});
   $('c-hint').textContent = '';
   $('confirm-box').hidden = true;
@@ -584,8 +632,73 @@ function readFiche(){
     millesime: $('f-millesime').value.trim(), fenetre: $('f-fenetre').value.trim(), accords: $('f-accords').value.trim(),
     couleur: radio('couleur'), stock: radio('stock') || 'S', note: radio('note'),
     precision: $('f-precision').value.trim(), lieu: $('f-lieu').value.trim(), prix: $('f-prix').value.trim(), date: $('f-date').value,
-    pourtoi: currentPourToi, src: readSrc()
+    pourtoi: currentPourToi, src: readSrc(),
+    analyse: ficheMeta.analyse, pourtoiDate: ficheMeta.pourtoiDate, pourtoiModele: ficheMeta.pourtoiModele,
+    photo: fichePhotos.thumb || '', photoFace: fichePhotos.front || '', photoDos: fichePhotos.back || ''
   };
+}
+
+/* ---------- Photos de la fiche (face et dos, gardées sur le téléphone) ---------- */
+let fichePhotos = {};
+function setFichePhotos(b){
+  fichePhotos = {front: b.photoFace || '', back: b.photoDos || '', thumb: b.photo || ''};
+  ['front','back'].forEach(side => {
+    const lab = $('flab-'+side); let im = lab.querySelector('img');
+    if (!fichePhotos[side]){ im?.remove(); return; }
+    if (!im){ im = document.createElement('img'); lab.appendChild(im); }
+    im.src = fichePhotos[side]; im.alt = side === 'front' ? 'Photo face' : 'Photo dos';
+  });
+}
+['front','back'].forEach(side => $('fp-'+side).addEventListener('change', async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  const b = readFiche();
+  b[side === 'front' ? 'photoFace' : 'photoDos'] = await shrink(f, 1000, 0.75);
+  if (side === 'front') b.photo = await shrink(f, 240, 0.7);
+  setFichePhotos(b);
+  setStatus('save-status', 'Photo ajoutée : appuyez sur « Sauver » pour la garder.');
+}));
+
+/* ---------- Date du résultat, Mettre à jour, Pas d'analyse ---------- */
+let ficheMeta = {analyse: null, pourtoiDate: '', pourtoiModele: ''};
+const frDate = iso => { const d = new Date(iso); return isNaN(d) ? '' : d.toLocaleDateString('fr-FR', {day:'numeric', month:'long', year:'numeric'}); };
+function renderAna(){
+  const a = ficheMeta.analyse, has = !!(a || currentPourToi);
+  $('ana-box').hidden = false;
+  $('noana').hidden = has;
+  $('ana-dated').hidden = !has;
+  if (!has) return;
+  const parts = [];
+  if (a) parts.push(`Analyse ${a.mode === 'fiche' ? 'à partir de la fiche' : 'des photos'} du ${frDate(a.date)}${a.modele ? ' · ' + a.modele : ''}`);
+  else parts.push('Date d’analyse inconnue');
+  if (ficheMeta.pourtoiDate && (!a || ficheMeta.pourtoiDate !== a.date)) parts.push(`verdict mis à jour le ${frDate(ficheMeta.pourtoiDate)}`);
+  $('ana-date').textContent = parts.join(' · ');
+}
+
+/* ---------- Fenêtre de dégustation : à garder, à boire, à son sommet ---------- */
+function windowState(f, y = new Date().getFullYear()){
+  const ys = (String(f || '').match(/\b(19|20)\d\d\b/g) || []).map(Number); if (!ys.length) return null;
+  let a = Math.min(...ys), b = Math.max(...ys);
+  if (ys.length === 1 && /boire|jusqu|avant|^\s*[-–—]/i.test(f)) return {k:'boire', label:'à boire'};   // « À boire - 2031 »
+  if (ys.length === 1 && /d[eè]s|partir|apr[eè]s|[-–—]\s*$/i.test(f)) b = a + 99;                                            // « dès 2028 »
+  if (y < a) return {k:'garder', label:'à garder'};
+  const m = Math.floor((b - a) / 3);                          // sommet : le tiers central de la fenêtre
+  if (y >= a + m && y <= b - m) return {k:'sommet', label:'à son sommet'};
+  return {k:'boire', label:'à boire'};
+}
+
+/* ---------- Plats : objet de l'IA ↔ texte de la fiche ---------- */
+const PLATS = [['Fromages','fromages'],['Viandes','viandes'],['Poissons','poissons'],['Desserts','desserts']];
+function accordsText(A){
+  if (Array.isArray(A)) return A.join(', ');
+  A = A && typeof A === 'object' ? A : {};
+  return PLATS.map(([t, k]) => [t, (Array.isArray(A[k]) ? A[k] : []).map(x => String(x).trim()).filter(Boolean).slice(0,3)])
+    .filter(([, v]) => v.length).map(([t, v]) => `${t} : ${v.join(', ')}`).join('\n');
+}
+function accordsObj(text){
+  const o = {}; PLATS.forEach(([t, k]) => o[k] = []);
+  String(text || '').split('\n').forEach(l => { const m = l.match(/^\s*([^:]+?)\s*:\s*(.*)$/); if (!m) return;
+    const k = PLATS.find(([t]) => norm(t) === norm(m[1]))?.[1]; if (k) o[k] = m[2].split(',').map(x => x.trim()).filter(Boolean); });
+  return o;
 }
 // Un champ modifié à la main perd son étiquette de source ; le nom complet suit
 SRC_FIELDS.forEach(k => {
@@ -598,6 +711,7 @@ let currentPourToi = null;
 function renderPourToi(pt){
   currentPourToi = pt || null;
   const box = $('pourtoi-box'); box.innerHTML = '';
+  renderAna();
   if (!pt) { box.hidden = true; return; }
   if (typeof pt === 'string'){ box.textContent = 'Pour toi : ' + pt; box.hidden = false; return; }
   const v = String(pt.verdict || '').toLowerCase();
@@ -618,8 +732,9 @@ function renderPourToi(pt){
 
 /* ---------- Profil de goût : résumé compact des avis de Ma cave ---------- */
 const CRITIQUES = [['trop acide', /acid/], ['vert', /\bvert/], ['amer', /amer/], ['boisé', /bois|f[uû]t|ch[eê]ne/], ['tannique', /tann|tanin/], ['sucré', /sucr/], ['lourd / alcooleux', /lourd|alcool/], ['mal de tête le lendemain', /mal de t[eê]te|patrak|lendemain/], ['dur / astringent', /\bdur|astring|r[aâ]peux/], ['plat / sans goût', /\bplat\b|sans go[uû]t|aqueux/]];
-async function tasteProfile(){
+async function tasteProfile(excludeId){
   let all = []; try { all = await db.all(); } catch(e) {}
+  if (excludeId) all = all.filter(b => b.id !== excludeId);          // la bouteille ne se compare pas à elle-même
   const L = {Excellent:'E', Passable:'P', Mauvais:'M'};
   const rated = all.map(migrate).filter(b => L[b.note]);
   const short = s => String(s || '').replace(/^\s*(standard\s*[+-]?|pas top|pas bon|bof|excellent|tr[eè]s bon|top)\s*[:/,.-]?\s*/i, '').replace(/\s+/g, ' ').trim().slice(0, 70);
@@ -648,6 +763,7 @@ function show(view){
   $('fiche').hidden = !(view === 'new' || fiche);
   $('back-cave').hidden = !fiche;
   $('del').hidden = !fiche;
+  $('fiche-photos').hidden = !fiche;                                      // à l'analyse, les photos sont déjà en haut
   $('fiche-title').textContent = fiche ? 'Fiche bouteille' : 'Nouvelle bouteille';
   if (cave) renderCave();
 }
@@ -673,7 +789,7 @@ function parseCSV(text){
   if (f || row.length){ row.push(f); rows.push(row); }
   return rows.filter(r => r.some(x => x.trim()));
 }
-const CSV_COLS = {ref:['ref','reference','n','no','numero','id'], region:['region'], appellation:['appellation','aoc','aop'], vin:['domaine','vin','nom','nomdelabouteille','chateau','producteur'],
+const CSV_COLS = {id:['id'], ref:['ref','reference','n','no','numero'], region:['region'], appellation:['appellation','aoc','aop'], vin:['domaine','vin','nom','nomdelabouteille','chateau','producteur'],
   cuvee:['cuvee'], lieudit:['precision','lieudit','climat','cru'], millesime:['millesime','annee'], fenetre:['fenetre','garde','aboire'], couleur:['couleur','type'],
   stock:['stock','sv','statut','etat'], note:['note'], precision:['avis','commentaire','commentairededegustation','degustation','remarque'], lieu:['lieu','lieudachat','achat'],
   prix:['prix','prixeur','prixe'], date:['date','datedachat'], cepage:['cepage','cepages']};
@@ -696,7 +812,16 @@ function csvToBottles(text){
       millesime: g('millesime'), fenetre: g('fenetre'), couleur: c.startsWith('ros') ? 'rosé' : c.startsWith('bl') ? 'blanc' : c.startsWith('rou') ? 'rouge' : '',
       stock: st.startsWith('V') ? 'V' : 'S', note: noteFrom(g('note')) || noteFrom(g('precision')), precision: g('precision'), lieu: g('lieu'), prix: g('prix'), date: g('date'), cepage: g('cepage'),
       createdAt: Date.now() - i};
-    b.id = 'csv-' + (b.ref || norm(b.vin + b.appellation + b.millesime).slice(0, 40) || i);
+    b.id = g('id') || 'csv-' + (b.ref || norm(b.vin + b.appellation + b.millesime).slice(0, 40) || i);
+    // Résultats d'analyse (colonnes d'un fichier exporté par cette page)
+    const H = name => { const j = head.indexOf(norm(name)); return j < 0 ? '' : String(r[j] || '').trim(); };
+    const L = (name, sep = ' | ') => H(name).split(sep).map(x => x.trim()).filter(Boolean);
+    if (H('Verdict') || H('Raisons')) b.pourtoi = {verdict: H('Verdict'), raisons: L('Raisons'), comparables: L('Comparables'), exclusions: L('Exclusions')};
+    const acc = accordsText(Object.fromEntries(PLATS.map(([t, k]) => [k, L(t, ',')])));
+    if (acc) b.accords = acc;
+    const src = {}; SRC_FIELDS.forEach(k => { const v = H('Source ' + SRC_LABEL[k]); if (v) src[k] = v; }); if (Object.keys(src).length) b.src = src;
+    if (H('Date analyse')) b.analyse = {date: H('Date analyse'), modele: H('Modèle'), mode: /fiche/i.test(H('Analyse faite à partir de')) ? 'fiche' : 'photos'};
+    if (H('Date verdict')){ b.pourtoiDate = H('Date verdict'); b.pourtoiModele = H('Modèle verdict'); }
     return b;
   }).filter(b => b.vin || b.appellation);
 }
@@ -724,6 +849,35 @@ $('imp-file').addEventListener('change', async e => {
   } catch(err){ setStatus('imp-status', 'Import impossible : ' + err.message, 'err'); }
 });
 
+/* ---------- Export CSV : une colonne par champ et par résultat, sans les photos ---------- */
+const SRC_LABEL = {region:'région', appellation:'appellation', lieudit:'précision', domaine:'domaine', cuvee:'cuvée', cepage:'cépage', millesime:'millésime', couleur:'couleur', fenetre:'fenêtre', accords:'plats'};
+const PT = b => b.pourtoi && typeof b.pourtoi === 'object' ? b.pourtoi : {};
+const EXPORT_COLS = [
+  ['Id', b => b.id], ['Domaine', b => b.domaine], ['Cuvée', b => b.cuvee], ['Appellation', b => b.appellation], ['Région', b => b.region],
+  ['Précision', b => b.lieudit], ['Millésime', b => b.millesime], ['Couleur', b => b.couleur], ['Fenêtre', b => b.fenetre],
+  ['État fenêtre', b => windowState(b.fenetre)?.label], ['Cépage', b => b.cepage], ['Stock', b => b.stock || 'S'],
+  ['Lieu d’achat', b => b.lieu], ['Prix', b => b.prix], ['Date', b => b.date], ['Note', b => b.note], ['Avis', b => b.precision],
+  ...SRC_FIELDS.map(k => ['Source ' + SRC_LABEL[k], b => b.src?.[k]]),
+  ['Verdict', b => PT(b).verdict || (typeof b.pourtoi === 'string' ? b.pourtoi : '')], ['Raisons', b => (PT(b).raisons || []).join(' | ')],
+  ['Comparables', b => (PT(b).comparables || []).join(' | ')], ['Exclusions', b => (PT(b).exclusions || []).join(' | ')],
+  ...PLATS.map(([t, k]) => [t, b => accordsObj(b.accords)[k].join(', ')]),
+  ['Date analyse', b => b.analyse?.date], ['Modèle', b => b.analyse?.modele], ['Analyse faite à partir de', b => b.analyse?.mode],
+  ['Date verdict', b => b.pourtoiDate], ['Modèle verdict', b => b.pourtoiModele]
+];
+const csvCell = v => { v = String(v ?? ''); return /[;"\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+$('exp-csv').addEventListener('click', async () => {
+  try {
+    const all = (await db.all()).map(migrate).sort((a, b) => (b.createdAt||0) - (a.createdAt||0));
+    if (!all.length) return setStatus('imp-status', 'Rien à exporter : la cave est vide.', 'err');
+    const csv = '﻿' + [EXPORT_COLS.map(c => c[0]), ...all.map(b => EXPORT_COLS.map(c => c[1](b)))].map(r => r.map(csvCell).join(';')).join('\r\n');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+    a.download = `ma-cave-${today()}.csv`; document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    setStatus('imp-status', `${all.length} bouteilles exportées (${EXPORT_COLS.length} colonnes, sans les photos).`, 'ok');
+  } catch(err){ setStatus('imp-status', 'Export impossible : ' + err.message, 'err'); }
+});
+
 async function renderCave(){
   let all = [];
   try { all = await db.all(); } catch(e) { setStatus('save-status', 'Base de données indisponible sur ce navigateur.', 'err'); }
@@ -741,24 +895,33 @@ async function renderCave(){
     const img = b.photo ? Object.assign(document.createElement('img'), {src:b.photo, alt:''}) : Object.assign(document.createElement('div'), {className:'ph'});
     const txt = document.createElement('div'); txt.className = 'txt';
     const t = document.createElement('b'); t.textContent = fullName(b) || 'Sans nom';
-    const m = document.createElement('div'); m.className = 'meta'; m.textContent = [b.region, b.lieudit, b.cepage].filter(Boolean).join(' · ');
     const bd = document.createElement('div'); bd.className = 'badges';
-    const add = (s, cls) => { if(!s) return; const e = document.createElement('span'); e.className = 'badge ' + (cls||''); e.textContent = s; bd.appendChild(e); };
-    add(b.stock || 'S', (b.stock || 'S') === 'S' ? 's' : ''); add(b.couleur); add(b.note);
-    txt.append(t, m, bd); btn.append(img, txt);
-    btn.addEventListener('click', () => { current = b; fillFiche(b); show('fiche'); window.scrollTo(0,0); });
+    const add = (s, cls) => { if(!s) return; const e = document.createElement('span'); e.className = cls; e.textContent = s; bd.appendChild(e); };
+    const st = b.stock || 'S';
+    add(st, 'badge ' + (st === 'S' ? 's' : ''));
+    const w = st === 'S' ? windowState(b.fenetre) : null;                    // une bouteille vide n'a plus de fenêtre
+    if (w) add(w.label, 'badge ' + w.k);
+    const v = typeof b.pourtoi === 'object' && b.pourtoi ? String(b.pourtoi.verdict || '').toLowerCase() : '';
+    if (v) add(v.charAt(0).toUpperCase() + v.slice(1), 'verdict ' + (v.startsWith('te') ? 'oui' : v.startsWith('ne') ? 'non' : 'bof'));
+    else add(b.pourtoi ? 'Pour toi' : 'Pas d’analyse', 'verdict none');
+    txt.append(t, bd); btn.append(img, txt);
+    btn.addEventListener('click', () => openBottle(b));
     list.appendChild(btn);
   }
 }
+function openBottle(b){ current = migrate(b); fillFiche(current); show('fiche'); window.scrollTo(0,0); }
 
 $('fiche').addEventListener('submit', async e => {
   e.preventDefault();
   const data = readFiche();
+  const isNew = !current;
   const b = current ? {...migrate(current), ...data, updatedAt: Date.now()}
-                    : {id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), createdAt: Date.now(), photo: thumb, ...data};
+                    : {id: Date.now().toString(36) + Math.random().toString(36).slice(2,6), createdAt: Date.now(), ...data};
   try {
     await db.put(b);
     current = b;
+    if (isNew) resetScan();                                                  // la prochaine analyse repart de zéro
+    $('fiche-photos').hidden = false;
     setStatus('save-status', `Enregistré dans Ma cave (${b.stock}).`, 'ok');
     $('back-cave').hidden = false; $('del').hidden = false; $('fiche-title').textContent = 'Fiche bouteille';
     $('t-scan').classList.remove('on'); $('t-cave').classList.add('on'); $('scan').hidden = true;
@@ -773,36 +936,24 @@ $('del').addEventListener('click', async () => {
   await db.del(current.id); current = null; show('cave');
 });
 
-/* ---------- Analyse ---------- */
+/* ---------- Appel à l'IA avec essais (photos ou texte seul) ---------- */
 const ms = x => (x/1000).toFixed(1).replace('.', ',') + ' s';
-$('scan').addEventListener('submit', async e => {
-  e.preventDefault();
-  const T0 = performance.now();
+const BUSY = [429, 500, 502, 503, 504, 529, 'délai'];
+const TIMEOUT = 25000;
+// Renvoie {ok, msg} ou {ok:true, out, used, model, trace, tApi}. onNote(texte) affiche l'avancement.
+async function askAI({prompt, imgs = [], sch, onNote}){
   const p = prov(), key = $('key').value.trim(), model = $('model').value.trim() || MODELS[p];
-  if(!key) return setStatus('status', "Collez d’abord une clé API.", 'err');
-  const imgs = [images.front, images.back].filter(Boolean);
-  if(!imgs.length) return setStatus('status', "Prenez au moins une photo (face ou dos).", 'err');
-  if($('remember').checked){ store.set('key-'+p, key); } else { store.del('key-'+p); }
+  if (!key) return {ok:false, msg:'Collez d’abord une clé API dans « Réglages IA ».'};
+  if ($('remember').checked){ store.set('key-'+p, key); } else { store.del('key-'+p); }
   store.set('model-'+p, model);
-
-  // Étape 1 : préparation (résumé des avis + consigne)
-  const prof = await tasteProfile();
-  const sides = images.front && images.back ? '1re = étiquette de face, 2e = contre-étiquette (dos)' : (images.front ? 'étiquette de face seulement' : 'contre-étiquette (dos) seulement');
-  const prompt = buildPrompt(prof.text, sides);
-  const kb = Math.round((imgs.join('').length * 3 / 4 + prompt.length) / 1024);
-  const tPrep = performance.now() - T0;
-
-  $('go').disabled = true; $('more').hidden = true; $('more').open = false;
-  const BUSY = [429, 500, 502, 503, 504, 529, 'délai'];
-  const TIMEOUT = 25000;
+  const T0 = performance.now();
   const light = LIGHT[p] !== model ? LIGHT[p] : null;
   const plan = [{m:model, wait:0}, light && {m:light, wait:0}, {m:model, wait:3000}, light && {m:light, wait:3000}].filter(Boolean);
   let note = 'Analyse en cours…';
-  const tick = setInterval(() => setStatus('status', `${note} ${Math.round((performance.now()-T0)/1000)} s`), 1000);
-  setStatus('status', note);
+  const tick = setInterval(() => onNote(`${note} ${Math.round((performance.now()-T0)/1000)} s`), 1000);
+  onNote(note);
   let out, used = model, lightMissing = false;
   const trace = [];
-  const tApi0 = performance.now();
   try{
     for (let i = 0; i < plan.length; i++){
       const {m, wait} = plan[i];
@@ -811,7 +962,7 @@ $('scan').addEventListener('submit', async e => {
       note = i === 0 ? 'Analyse en cours…' : `Nouvel essai ${i+1}/${plan.length}${m === light ? ' (modèle rapide)' : ''}…`;
       const ctl = new AbortController(), ta = performance.now();
       const timer = setTimeout(() => ctl.abort(), TIMEOUT);
-      try { out = await ({gemini:callGemini, claude:callClaude, openai:callOpenAI})[p](key, m, imgs, ctl.signal, prompt); }
+      try { out = await ({gemini:callGemini, claude:callClaude, openai:callOpenAI})[p](key, m, imgs, ctl.signal, prompt, sch); }
       catch(err){ if (err.name !== 'AbortError') throw err; out = {status:'délai', json:{error:{message:`pas de réponse en ${TIMEOUT/1000} s`}}}; }
       finally { clearTimeout(timer); }
       trace.push(`  essai ${i+1} : ${m} → ${out.status === 'délai' ? 'abandonné après 25 s' : 'HTTP '+out.status} en ${ms(performance.now()-ta)}${out.tm && out.tm.calls > 1 ? ` (${out.tm.calls} requêtes : réglage refusé puis corrigé)` : ''}`);
@@ -821,19 +972,44 @@ $('scan').addEventListener('submit', async e => {
       note = `${NAMES[p]} est saturé ou lent…`;
     }
   }catch(err){
-    clearInterval(tick); $('go').disabled = false;
-    return setStatus('status', `Appel bloqué avant réponse (${err.message}). Cause probable : CORS ou réseau.`, 'err');
+    clearInterval(tick);
+    return {ok:false, msg:`Appel bloqué avant réponse (${err.message}). Cause probable : CORS ou réseau.`};
   }
   clearInterval(tick);
+  const tApi = performance.now() - T0;
+  if (BUSY.includes(out.status))
+    return {ok:false, msg:`${NAMES[p]} est saturé en ce moment (${trace.length} essais en ${ms(tApi)}). Ce n’est pas un problème de votre clé ni de vos photos : réessayez dans quelques minutes, ou choisissez un autre fournisseur si vous avez sa clé.`};
+  if (out.status !== 200)
+    return {ok:false, msg:`L’API a refusé la requête (HTTP ${out.status}) : ${out.json?.error?.message || JSON.stringify(out.json).slice(0,200)}`};
+  return {ok:true, out, used, model, trace, tApi};
+}
+const pourToiFrom = d => d.pour_toi && typeof d.pour_toi === 'object' ? d.pour_toi : (d.pour_toi ? String(d.pour_toi) : null);
+
+/* ---------- Analyse des photos ---------- */
+function resetScan(){
+  ['front','back'].forEach(side => { delete images[side]; delete shrinkMs[side]; $(side).value = ''; $('lab-'+side).querySelector('img')?.remove(); });
+  thumb = ''; $('more').hidden = true; setStatus('status', '');
+}
+$('scan').addEventListener('submit', async e => {
+  e.preventDefault();
+  const T0 = performance.now();
+  const p = prov();
+  const imgs = [images.front, images.back].filter(Boolean);
+  if (!$('key').value.trim()) return setStatus('status', "Collez d’abord une clé API.", 'err');
+  if(!imgs.length) return setStatus('status', "Prenez au moins une photo (face ou dos).", 'err');
+
+  // Étape 1 : préparation (résumé des avis + consigne)
+  const prof = await tasteProfile();
+  const sides = images.front && images.back ? '1re = étiquette de face, 2e = contre-étiquette (dos)' : (images.front ? 'étiquette de face seulement' : 'contre-étiquette (dos) seulement');
+  const prompt = buildPrompt(prof.text, sides);
+  const kb = Math.round((imgs.join('').length * 3 / 4 + prompt.length) / 1024);
+  const tPrep = performance.now() - T0;
+
+  $('go').disabled = true; $('more').hidden = true; $('more').open = false;
+  const r = await askAI({prompt, imgs, onNote: m => setStatus('status', m)});
   $('go').disabled = false;
-  const tApi = performance.now() - tApi0;
-  if (BUSY.includes(out.status)){
-    return setStatus('status', `${NAMES[p]} est saturé en ce moment (${trace.length} essais en ${ms(tApi)}). Ce n’est pas un problème de votre clé ni de vos photos : réessayez dans quelques minutes, ou choisissez un autre fournisseur si vous avez sa clé.`, 'err');
-  }
-  if(out.status !== 200){
-    const msg = out.json?.error?.message || JSON.stringify(out.json).slice(0,200);
-    return setStatus('status', `L’API a refusé la requête (HTTP ${out.status}) : ${msg}`, 'err');
-  }
+  if (!r.ok) return setStatus('status', r.msg, 'err');
+  const {out, used, model, trace, tApi} = r;
 
   // Étape 3 : lecture de la réponse et remplissage de la fiche
   const tR = performance.now();
@@ -856,15 +1032,13 @@ $('scan').addEventListener('submit', async e => {
   const vals = {region, appellation, lieudit, domaine, cuvee, cepage, millesime: keep('millesime', d.millesime), couleur, fenetre: String(d.fenetre||'').trim()};
   const srcOut = {};
   if (src) Object.keys(vals).forEach(k => { const v = S(k === 'lieudit' ? 'lieu_dit' : k); if (vals[k] && v && v !== 'aucune') srcOut[k] = v; });
-  const A = d.accords && typeof d.accords === 'object' && !Array.isArray(d.accords) ? d.accords : {};
-  const accords = [['Fromages','fromages'],['Viandes','viandes'],['Poissons','poissons'],['Desserts','desserts']]
-    .map(([t, k]) => [t, (Array.isArray(A[k]) ? A[k] : []).map(x => String(x).trim()).filter(Boolean).slice(0,3)])
-    .filter(([, v]) => v.length).map(([t, v]) => `${t} : ${v.join(', ')}`).join('\n')
-    || (Array.isArray(d.accords) ? d.accords.join(', ') : '');
-  const pt = d.pour_toi && typeof d.pour_toi === 'object' ? d.pour_toi : (d.pour_toi ? String(d.pour_toi) : null);
+  const accords = accordsText(d.accords);
   if (accords) srcOut.accords = 'estimé';
+  const now = new Date().toISOString();
   current = null;
-  fillFiche({...vals, accords, stock: 'S', pourtoi: pt, src: srcOut});
+  fillFiche({...vals, accords, stock: 'S', pourtoi: pourToiFrom(d), src: srcOut,
+    analyse: {date: now, modele: used, fournisseur: NAMES[p], mode: 'photos'}, pourtoiDate: now, pourtoiModele: used,
+    photoFace: images.front ? 'data:image/jpeg;base64,' + images.front : '', photoDos: images.back ? 'data:image/jpeg;base64,' + images.back : '', photo: thumb});
   $('c-hint').textContent = couleur ? '' : '· non indiquée sur l’étiquette, à choisir';
   const ul = $('confirm'); ul.innerHTML = '';
   (Array.isArray(d.a_confirmer) ? d.a_confirmer : (d.a_confirmer ? [d.a_confirmer] : [])).slice(0,2).forEach(x => {
@@ -895,6 +1069,45 @@ $('scan').addEventListener('submit', async e => {
   show('new');
   $('fiche').scrollIntoView({behavior:'smooth', block:'start'});
 });
+
+/* ---------- Sans photo : Mettre à jour le verdict, ou analyser une fiche importée ----------
+   Toujours déclenché par un appui, une bouteille à la fois. */
+async function textAnalysis(withAccords){
+  const btns = [$('pt-update'), $('ana-fiche')];
+  const b = readFiche();
+  if (!fullName(b)) return setStatus('ana-status', 'La fiche est vide : remplissez au moins le domaine ou l’appellation.', 'err');
+  btns.forEach(x => x.disabled = true);
+  const prof = await tasteProfile(current?.id);
+  const prompt = buildTextPrompt(b, prof.text, withAccords);
+  const r = await askAI({prompt, sch: g => schema(g, withAccords ? 'fiche' : 'pourtoi'), onNote: m => setStatus('ana-status', m)});
+  btns.forEach(x => x.disabled = false);
+  if (!r.ok) return setStatus('ana-status', r.msg, 'err');
+  const d = parseJSON(r.out.text) || {};
+  const pt = pourToiFrom(d);
+  if (!pt) return setStatus('ana-status', 'Réponse de l’IA illisible, réessayez.', 'err');
+  const now = new Date().toISOString();
+  const patch = {pourtoi: pt, pourtoiDate: now, pourtoiModele: r.used};
+  if (withAccords){
+    patch.analyse = {date: now, modele: r.used, fournisseur: NAMES[prov()], mode: 'fiche'};
+    const acc = accordsText(d.accords);
+    if (acc){ $('f-accords').value = acc; $('src-accords').textContent = 'estimé'; }
+  }
+  ficheMeta = {...ficheMeta, ...patch};
+  renderPourToi(pt);
+  // Le résultat est gardé tout de suite avec la bouteille (sans toucher aux autres champs en cours de saisie)
+  if (current?.id){
+    try {
+      const saved = migrate(await db.get(current.id)) || current;
+      const upd = {...saved, ...patch, updatedAt: Date.now()};
+      if (withAccords && $('f-accords').value){ upd.accords = $('f-accords').value; upd.src = {...(saved.src || {}), accords: 'estimé'}; }
+      await db.put(upd); current = {...current, ...upd};
+      setStatus('ana-status', withAccords ? 'Analyse faite à partir de la fiche et enregistrée.' : 'Verdict mis à jour et enregistré.', 'ok');
+      renderCave();
+    } catch(err){ setStatus('ana-status', 'Résultat affiché mais non enregistré : ' + err.message, 'err'); }
+  } else setStatus('ana-status', 'Verdict mis à jour. Appuyez sur « Sauver » pour le garder.', 'ok');
+}
+$('pt-update').addEventListener('click', () => textAnalysis(false));
+$('ana-fiche').addEventListener('click', () => textAnalysis(true));
 
 renderCave();
 </script>
