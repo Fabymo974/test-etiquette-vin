@@ -144,6 +144,7 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
       <div class="full"><label for="f-vin">Nom de la bouteille <span class="hint">domaine, cuvée</span></label><input type="text" id="f-vin"></div>
       <div><label for="f-millesime">Millésime</label><input type="text" id="f-millesime" inputmode="numeric"></div>
       <div><label for="f-fenetre">Fenêtre</label><input type="text" id="f-fenetre" placeholder="2026–2030"></div>
+      <div class="full"><label for="f-accords">Idéal avec <span class="hint">3 types de plats</span></label><input type="text" id="f-accords" placeholder="Bœuf grillé · Gibier · Fromages affinés"></div>
     </div>
 
     <div>
@@ -163,6 +164,12 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
       </div>
     </div>
 
+    <div class="fields">
+      <div class="full"><label for="f-lieu">Lieu</label><input type="text" id="f-lieu" placeholder="Cave, salon, domaine…"></div>
+      <div><label for="f-prix">Prix (€)</label><input type="text" id="f-prix" inputmode="decimal" placeholder="12,50"></div>
+      <div><label for="f-date">Date</label><input type="date" id="f-date"></div>
+    </div>
+
     <div>
       <label>Note</label>
       <div class="row" role="radiogroup">
@@ -176,12 +183,6 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
       <textarea id="f-precision" placeholder="Ce que vous en avez pensé, avec quoi vous l’avez bu…"></textarea>
     </div>
 
-    <div class="fields">
-      <div class="full"><label for="f-lieu">Lieu</label><input type="text" id="f-lieu" placeholder="Cave, salon, domaine…"></div>
-      <div><label for="f-prix">Prix (€)</label><input type="text" id="f-prix" inputmode="decimal" placeholder="12,50"></div>
-      <div><label for="f-date">Date</label><input type="date" id="f-date"></div>
-    </div>
-
     <div class="confirm" id="confirm-box" hidden><strong>À confirmer</strong><ul id="confirm"></ul></div>
     <details id="diag" hidden><summary>Réponse brute et diagnostic</summary><pre id="raw"></pre></details>
 
@@ -193,13 +194,17 @@ pre{font-family:var(--mono);white-space:pre-wrap;word-break:break-word;overflow-
 
 <script>
 const MODELS = { gemini: "gemini-3.8-flash", claude: "claude-sonnet-5-5", openai: "gpt-5-mini" };
+// Modèle plus léger essayé quand le modèle choisi est saturé ou trop lent
+const LIGHT = { gemini: "gemini-flash-lite-latest", claude: "claude-haiku-5-5", openai: "gpt-5-nano" };
 const REGIONS = ['Alsace','Beaujolais','Bordeaux','Bourgogne','Champagne','Corse','Jura','Languedoc-Roussillon','Provence','Savoie','Sud-Ouest','Vallée de la Loire','Vallée du Rhône','Autre'];
 const PROMPT = `Lis les photos d'une bouteille de vin (étiquette de face et contre-étiquette).
 Réponds UNIQUEMENT avec ce JSON, sans texte autour :
-{"region":"","appellation":"","nom":"","millesime":"","couleur":"","fenetre":"","a_confirmer":[]}
+{"region":"","appellation":"","nom":"","millesime":"","couleur":"","fenetre":"","accords":["","",""],"a_confirmer":[]}
+RÈGLE ABSOLUE : aucune information en double. Chaque mot n'apparaît que dans UN seul champ.
 - region : EXACTEMENT un nom de cette liste, rien d'autre : ${REGIONS.join(', ')}. "Autre" pour un vin étranger.
-- appellation : l'appellation seule (ex. "Cairanne", "Hautes-Côtes de Beaune").
-- nom : le nom de la bouteille = domaine ou château, puis la cuvée s'il y en a une. RÈGLE : aucun doublon. Ne répète jamais dans "nom" la région, l'appellation, l'année ni la couleur déjà données dans les autres champs.
+- appellation : l'appellation SANS le nom de la région. Ex. "Bourgogne Hautes-Côtes de Beaune" → "Hautes-Côtes de Beaune". Si l'appellation est juste le nom de la région (ex. AOC "Bourgogne"), mets "".
+- nom : UNIQUEMENT le producteur (domaine, château, maison ou vigneron) et, s'il existe, le nom de cuvée. 6 mots maximum. INTERDIT dans "nom" : région, appellation, année, couleur, cépage, AOP/AOC/IGP, "Grand vin", "Mis en bouteille", "Vin de France", mentions légales.
+- accords : les 3 types de plats qui vont le mieux avec ce vin, 4 mots maximum chacun (ex. "Bœuf grillé").
 - millesime : l'année écrite sur l'étiquette, telle quelle. Ne la remets jamais en question.
 - couleur : "rouge", "rosé" ou "blanc" seulement si c'est écrit sur l'étiquette. Sinon "".
 - fenetre : années conseillées pour le boire, ex. "2026–2030". Rien d'autre.
@@ -279,7 +284,7 @@ function shrink(file, max, q){
 ['front','back'].forEach(side => {
   $(side).addEventListener('change', async e => {
     const f = e.target.files[0]; if(!f) return;
-    const data = await shrink(f, 1280, 0.8);
+    const data = await shrink(f, 1024, 0.78);
     images[side] = data.split(',')[1];
     if (side === 'front') thumb = await shrink(f, 240, 0.7);
     const lab = $('lab-'+side);
@@ -301,10 +306,28 @@ function removeTerm(s, term){
     const chars = [...s]; chars.splice(map[k], map[k+t.length-1] - map[k] + 1); s = chars.join('');
   }
 }
+/* Appellation sans la région : « Bourgogne Hautes-Côtes de Beaune » → « Hautes-Côtes de Beaune » */
+function cleanAppellation(app, region){
+  let s = String(app||'').trim();
+  const f = x => String(x||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase();
+  const words = [region, ...REGION_WORDS].filter(Boolean).sort((a,b) => b.length - a.length);
+  for (const w of words){
+    if (f(s) === f(w)) return '';                                            // AOC « Bourgogne » seule
+    if (f(s).startsWith(f(w) + ' ') || f(s).startsWith(f(w) + '-')) return s.slice(w.length).replace(/^[\s\-–—]+/,'').trim();
+  }
+  return s;
+}
+const NAME_NOISE = [
+  /\b(appellation\s+)?(d['’]\s*origine\s+)?(prot[eé]g[eé]e|contr[oô]l[eé]e)\b/gi, /\bA\.?O\.?[PC]\.?(?=\s|$|,)/gi, /\bI\.?G\.?P\.?(?=\s|$|,)/gi,
+  /\bvin de (france|pays)\b/gi, /\bpays d['’]\s*oc\b/gi, /\bgrand vin( de)?\b/gi, /\bmis en bouteilles?\b[^,]*/gi,
+  /\bvins?\s+(rouge|blanc|ros[eé])s?(?![\wÀ-ÿ])/gi
+];
 function cleanName(name, {region, appellation, millesime} = {}){
   let s = String(name||'').trim();
   for (const term of [appellation, region, ...REGION_WORDS, millesime]) s = removeTerm(s, term);
-  s = s.replace(/\bA\.?O\.?[PC]\.?(?=\s|$|,)/gi,'')                        // AOP / AOC
+  for (const re of NAME_NOISE) s = s.replace(re, '');
+  s = s.replace(/\b(19|20)\d\d\b/g,'')                                      // toute autre année
+       .replace(/\bA\.?O\.?[PC]\.?(?=\s|$|,)/gi,'')                        // AOP / AOC
        .replace(/\([^()]*\b(du|de|des|la|le|d’|d')\s*\)/gi,'');             // reste du type « (cru du ) »
   for (let i = 0; i < 3; i++) s = s.replace(/\(\s*[,;:\s\-–—]*\)/g,'').replace(/\s*([,;:\-–—])\s*(?=[,;:\-–—)]|$)/g,'').replace(/\(\s*[,;:\-–—]\s*/g,'(').replace(/\s+,/g,',').replace(/\s{2,}/g,' ');
   s = s.replace(/^[\s,;:\-–—]+|[\s,;:\-–—]+$/g,'').replace(/^\(([^()]*)\)$/,'$1').trim();
@@ -312,7 +335,7 @@ function cleanName(name, {region, appellation, millesime} = {}){
 }
 
 /* ---------- Appels aux fournisseurs ---------- */
-async function callGemini(key, model, imgs){
+async function callGemini(key, model, imgs, signal){
   const parts = [{text: PROMPT}, ...imgs.map(b => ({inline_data:{mime_type:'image/jpeg', data:b}}))];
   const thinking = [{thinkingLevel:'minimal'}, {thinkingLevel:'low'}, {thinkingBudget:0}, null];
   let r, j;
@@ -320,7 +343,7 @@ async function callGemini(key, model, imgs){
     const generationConfig = {responseMimeType:'application/json'};
     if (t) generationConfig.thinkingConfig = t;
     r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-      method:'POST', headers:{'content-type':'application/json','x-goog-api-key':key},
+      method:'POST', signal, headers:{'content-type':'application/json','x-goog-api-key':key},
       body: JSON.stringify({contents:[{parts}], generationConfig})
     });
     j = await r.json();
@@ -328,24 +351,24 @@ async function callGemini(key, model, imgs){
   }
   return {status:r.status, json:j, text: j?.candidates?.[0]?.content?.parts?.map(p=>p.thought ? '' : (p.text||'')).join('') || ''};
 }
-async function callClaude(key, model, imgs){
+async function callClaude(key, model, imgs, signal){
   const content = [...imgs.map(b => ({type:'image', source:{type:'base64', media_type:'image/jpeg', data:b}})), {type:'text', text: PROMPT}];
   const r = await fetch('https://api.anthropic.com/v1/messages', {
-    method:'POST',
+    method:'POST', signal,
     headers:{'content-type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
     body: JSON.stringify({model, max_tokens:1024, messages:[{role:'user', content}]})
   });
   const j = await r.json();
   return {status:r.status, json:j, text: (j?.content||[]).filter(c=>c.type==='text').map(c=>c.text).join('')};
 }
-async function callOpenAI(key, model, imgs){
+async function callOpenAI(key, model, imgs, signal){
   const content = [{type:'text', text: PROMPT}, ...imgs.map(b => ({type:'image_url', image_url:{url:'data:image/jpeg;base64,'+b}}))];
   let r, j;
   for (const effort of ['minimal', null]){
     const body = {model, messages:[{role:'user', content}], response_format:{type:'json_object'}};
     if (effort) body.reasoning_effort = effort;
     r = await fetch('https://api.openai.com/v1/chat/completions', {
-      method:'POST', headers:{'content-type':'application/json','authorization':'Bearer '+key},
+      method:'POST', signal, headers:{'content-type':'application/json','authorization':'Bearer '+key},
       body: JSON.stringify(body)
     });
     j = await r.json();
@@ -370,6 +393,7 @@ function fillFiche(b){
   $('f-vin').value = b.vin || '';
   $('f-millesime').value = b.millesime || '';
   $('f-fenetre').value = b.fenetre || '';
+  $('f-accords').value = b.accords || '';
   setRadio('couleur', b.couleur || '');
   setRadio('stock', b.stock || 'S');
   setRadio('note', b.note || '');
@@ -385,7 +409,7 @@ function fillFiche(b){
 function readFiche(){
   return {
     region: $('f-region').value, appellation: $('f-appellation').value.trim(), vin: $('f-vin').value.trim(),
-    millesime: $('f-millesime').value.trim(), fenetre: $('f-fenetre').value.trim(),
+    millesime: $('f-millesime').value.trim(), fenetre: $('f-fenetre').value.trim(), accords: $('f-accords').value.trim(),
     couleur: radio('couleur'), stock: radio('stock') || 'S', note: radio('note'),
     precision: $('f-precision').value.trim(), lieu: $('f-lieu').value.trim(), prix: $('f-prix').value.trim(), date: $('f-date').value
   };
@@ -420,6 +444,7 @@ $('imp-file').addEventListener('change', async e => {
     let n = 0;
     for (const b of items){
       if (!b || !b.id) continue;
+      b.appellation = cleanAppellation(b.appellation, b.region);
       const old = await db.get(b.id);
       await db.put(old && old.updatedAt ? {...b, ...old} : b);   // une fiche déjà modifiée dans l'app n'est jamais écrasée
       n++;
@@ -487,30 +512,46 @@ $('scan').addEventListener('submit', async e => {
   if($('remember').checked){ store.set('key-'+p, key); } else { store.del('key-'+p); }
   store.set('model-'+p, model);
 
-  $('go').disabled = true; setStatus('status', 'Analyse en cours…');
+  $('go').disabled = true;
   const t0 = performance.now();
-  let out;
-  const BUSY = [429, 500, 502, 503, 504, 529], WAIT = [0, 4000, 8000, 15000];
   const NAMES = {gemini:'Gemini', claude:'Claude', openai:'ChatGPT'};
+  const BUSY = [429, 500, 502, 503, 504, 529, 'délai'];
+  const TIMEOUT = 25000;                        // un essai qui dépasse 25 s est abandonné
+  const light = LIGHT[p] !== model ? LIGHT[p] : null;
+  // Essais : modèle choisi, puis modèle léger, puis les deux encore une fois après une courte pause
+  const plan = [{m:model, wait:0}, light && {m:light, wait:0}, {m:model, wait:3000}, light && {m:light, wait:3000}].filter(Boolean);
+  let note = 'Analyse en cours…';
+  const tick = setInterval(() => setStatus('status', `${note} ${Math.round((performance.now()-t0)/1000)} s`), 1000);
+  setStatus('status', note);
+  let out, used = model, lightMissing = false;
+  const trace = [];
   try{
-    for (let i = 0; i < WAIT.length; i++){
-      if (WAIT[i]){
-        setStatus('status', `${NAMES[p]} est saturé, nouvel essai ${i+1}/${WAIT.length} dans ${WAIT[i]/1000} s…`);
-        await new Promise(r => setTimeout(r, WAIT[i]));
-        setStatus('status', `Analyse en cours… (essai ${i+1}/${WAIT.length})`);
-      }
-      out = await ({gemini:callGemini, claude:callClaude, openai:callOpenAI})[p](key, model, imgs);
+    for (let i = 0; i < plan.length; i++){
+      const {m, wait} = plan[i];
+      if (m === light && lightMissing) continue;
+      if (wait) { note = `${NAMES[p]} est saturé, nouvel essai…`; await new Promise(r => setTimeout(r, wait)); }
+      note = i === 0 ? 'Analyse en cours…' : `Nouvel essai ${i+1}/${plan.length}${m === light ? ' (modèle rapide)' : ''}…`;
+      const ctl = new AbortController(), ta = performance.now();
+      const timer = setTimeout(() => ctl.abort(), TIMEOUT);
+      try { out = await ({gemini:callGemini, claude:callClaude, openai:callOpenAI})[p](key, m, imgs, ctl.signal); }
+      catch(err){ if (err.name !== 'AbortError') throw err; out = {status:'délai', json:{error:{message:`pas de réponse en ${TIMEOUT/1000} s`}}}; }
+      finally { clearTimeout(timer); }
+      trace.push(`essai ${i+1} : ${m} → ${out.status === 'délai' ? 'abandonné après 25 s' : 'HTTP '+out.status} (${Math.round(performance.now()-ta)} ms)`);
+      used = m;
+      if (m === light && (out.status === 404 || out.status === 400)) { lightMissing = true; continue; }   // modèle léger indisponible pour ce compte
       if (!BUSY.includes(out.status)) break;
+      note = `${NAMES[p]} est saturé ou lent…`;
     }
   }catch(err){
-    $('go').disabled = false;
+    clearInterval(tick); $('go').disabled = false;
     return setStatus('status', `Appel bloqué avant réponse (${err.message}). Cause probable : CORS ou réseau.`, 'err');
   }
+  clearInterval(tick);
   $('go').disabled = false;
   const ms = Math.round(performance.now()-t0);
-  const diag = `Fournisseur : ${p}\nModèle : ${model}\nHTTP ${out.status} en ${ms} ms\n\n`;
+  const diag = `Fournisseur : ${p}\nModèle utilisé : ${used}\nHTTP ${out.status} en ${ms} ms au total\n${trace.join('\n')}\n\n`;
   if (BUSY.includes(out.status)){
-    return setStatus('status', `${NAMES[p]} est saturé en ce moment (HTTP ${out.status}, ${WAIT.length} essais). Ce n’est pas un problème de votre clé ni de vos photos : réessayez dans quelques minutes, ou choisissez un autre fournisseur si vous avez sa clé.`, 'err');
+    return setStatus('status', `${NAMES[p]} est saturé en ce moment (${trace.length} essais en ${Math.round(ms/1000)} s). Ce n’est pas un problème de votre clé ni de vos photos : réessayez dans quelques minutes, ou choisissez un autre fournisseur si vous avez sa clé.`, 'err');
   }
   if(out.status !== 200){
     const msg = out.json?.error?.message || JSON.stringify(out.json).slice(0,200);
@@ -519,8 +560,11 @@ $('scan').addEventListener('submit', async e => {
   const d = parseJSON(out.text) || {};
   current = null;
   const c = String(d.couleur || '').toLowerCase().replace(/^rose$/, 'rosé');
-  const region = toRegion(d.region);
-  fillFiche({ region, appellation: d.appellation, vin: cleanName(d.nom || d.vin, {region, appellation: d.appellation, millesime: d.millesime}), millesime: d.millesime,
+  const region = toRegion(d.region), appellation = cleanAppellation(d.appellation, region);
+  let vin = cleanName(d.nom || d.vin, {region, appellation: d.appellation, millesime: d.millesime});
+  vin = cleanName(vin, {appellation});
+  const accords = (Array.isArray(d.accords) ? d.accords : String(d.accords||'').split(/[,;·]/)).map(x => String(x).trim()).filter(Boolean).slice(0,3).join(' · ');
+  fillFiche({ region, appellation, vin, millesime: d.millesime, accords,
               fenetre: d.fenetre, couleur: ['rouge','rosé','blanc'].includes(c) ? c : '', stock: 'S' });
   $('c-hint').textContent = ['rouge','rosé','blanc'].includes(c) ? '' : '· non indiquée sur l’étiquette, à choisir';
   const ul = $('confirm'); ul.innerHTML = '';
@@ -529,7 +573,7 @@ $('scan').addEventListener('submit', async e => {
   });
   $('confirm-box').hidden = !ul.children.length;
   $('raw').textContent = diag + JSON.stringify(out.json, null, 2); $('diag').hidden = false;
-  setStatus('status', `Analyse terminée en ${(ms/1000).toFixed(1)} s. Complétez la fiche puis appuyez sur « Sauver ».`);
+  setStatus('status', `Analyse terminée en ${(ms/1000).toFixed(1)} s${used !== model ? ' (modèle rapide '+used+')' : ''}. Complétez la fiche puis appuyez sur « Sauver ».`);
   show('new');
   $('fiche').scrollIntoView({behavior:'smooth', block:'start'});
 });
